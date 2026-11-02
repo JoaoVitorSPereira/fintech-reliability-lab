@@ -1,0 +1,7 @@
+packages:
+  - apps/*
+allowBuilds:
+  '@apollo/protobufjs': false
+  '@parcel/watcher': false
+  '@prisma/engines': true
+  prisma: true

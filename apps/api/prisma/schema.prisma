@@ -1,0 +1,14 @@
+// Models arrive in Milestone 2. M1 only wires up the client and migrations.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  // Nest 12 apps compile to CommonJS; Prisma 7 defaults to ESM output.
+  moduleFormat = "cjs"
+  // Extensionless relative imports: valid for CJS under nodenext, and Jest can resolve them.
+  importFileExtension = ""
+}
+
+datasource db {
+  provider = "postgresql"
+}

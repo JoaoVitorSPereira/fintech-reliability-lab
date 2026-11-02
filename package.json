@@ -1,0 +1,13 @@
+{
+  "name": "fintech-reliability-lab",
+  "private": true,
+  "packageManager": "pnpm@12.16.1",
+  "engines": { "node": ">=24.9" },
+  "scripts": {
+    "dev": "pnpm --filter api dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  }
+}

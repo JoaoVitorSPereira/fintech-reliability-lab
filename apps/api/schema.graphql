@@ -1,0 +1,29 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+enum DependencyStatus {
+  DOWN
+  UP
+}
+
+type Health {
+  checkedAt: DateTime!
+  database: DependencyStatus!
+  redis: DependencyStatus!
+  status: HealthStatus!
+}
+
+enum HealthStatus {
+  DEGRADED
+  OK
+}
+
+type Query {
+  health: Health!
+}
