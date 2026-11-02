@@ -7,3 +7,4 @@ process.env['DATABASE_URL'] =
   'postgresql://fintech:fintech@localhost:5433/fintech_test';
 process.env['REDIS_URL'] =
   process.env['TEST_REDIS_URL'] ?? 'redis://localhost:6379/1';
+process.env['JWT_ACCESS_SECRET'] ??= 'test-only-secret-0123456789abcdefghijkl';

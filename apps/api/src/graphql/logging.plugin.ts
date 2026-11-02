@@ -2,8 +2,10 @@ import type {
   ApolloServerPlugin,
   GraphQLRequestListener,
 } from '@apollo/server';
+import { unwrapResolverError } from '@apollo/server/errors';
 import { Plugin } from '@nestjs/apollo';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+import { AppError } from '../shared/errors/app-error';
 
 // GraphQL answers HTTP 200 even when resolvers fail, so HTTP access logs alone
 // say "success". This logs the real outcome per operation.
@@ -22,9 +24,16 @@ export class GraphqlLoggingPlugin implements ApolloServerPlugin {
     return {
       async didEncounterErrors({ errors }) {
         for (const error of errors) {
-          errorCodes.push(error.extensions['code']);
-          if (error.extensions['code'] === 'INTERNAL_SERVER_ERROR') {
-            logger.error({ err: error.originalError ?? error }, error.message);
+          const original = unwrapResolverError(error);
+          if (original instanceof AppError) {
+            errorCodes.push(original.code);
+          } else if (error.extensions['code'] && !error.originalError) {
+            // Request-level errors (parse/validation): client's problem.
+            errorCodes.push(error.extensions['code']);
+          } else {
+            // Unexpected: this is the only place the real error is visible.
+            errorCodes.push('INTERNAL_SERVER_ERROR');
+            logger.error({ err: original }, 'unhandled resolver error');
           }
         }
       },

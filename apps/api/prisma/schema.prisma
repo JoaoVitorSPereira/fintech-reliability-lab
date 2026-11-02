@@ -1,14 +1,74 @@
-// Models arrive in Milestone 2. M1 only wires up the client and migrations.
-
 generator client {
-  provider     = "prisma-client"
-  output       = "../src/generated/prisma"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
   // Nest 12 apps compile to CommonJS; Prisma 7 defaults to ESM output.
-  moduleFormat = "cjs"
+  moduleFormat        = "cjs"
   // Extensionless relative imports: valid for CJS under nodenext, and Jest can resolve them.
   importFileExtension = ""
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+// UUIDv7 ids are time-ordered: new rows land at the end of the btree index
+// instead of random pages, which keeps inserts cheap as tables grow.
+
+model User {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  /// Always lowercase; enforced by a CHECK constraint in the migration.
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  sessions     Session[]
+
+  @@map("users")
+}
+
+enum SessionRevocationReason {
+  LOGOUT
+  USER_REVOKED
+  REFRESH_TOKEN_REUSE
+
+  @@map("session_revocation_reason")
+}
+
+/// One login on one device. Refresh tokens rotate inside it.
+model Session {
+  id              String                   @id @default(uuid(7)) @db.Uuid
+  userId          String                   @map("user_id") @db.Uuid
+  user            User                     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  deviceName      String?                  @map("device_name")
+  createdAt       DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastRefreshedAt DateTime?                @map("last_refreshed_at") @db.Timestamptz(3)
+  /// Absolute lifetime: rotation never extends a session past this.
+  expiresAt       DateTime                 @map("expires_at") @db.Timestamptz(3)
+  revokedAt       DateTime?                @map("revoked_at") @db.Timestamptz(3)
+  revokedReason   SessionRevocationReason? @map("revoked_reason")
+  refreshTokens   RefreshToken[]
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/// Only the SHA-256 of the token is stored. A database leak doesn't leak
+/// usable tokens. Rows are kept after use so reuse can be detected.
+model RefreshToken {
+  id           String        @id @default(uuid(7)) @db.Uuid
+  sessionId    String        @map("session_id") @db.Uuid
+  session      Session       @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  tokenHash    String        @unique @map("token_hash")
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt    DateTime      @map("expires_at") @db.Timestamptz(3)
+  /// Set when exchanged for a successor.
+  rotatedAt    DateTime?     @map("rotated_at") @db.Timestamptz(3)
+  /// Set when invalidated without being exchanged (grace re-issue, logout).
+  revokedAt    DateTime?     @map("revoked_at") @db.Timestamptz(3)
+  replacedById String?       @unique @map("replaced_by_id") @db.Uuid
+  replacedBy   RefreshToken? @relation("Rotation", fields: [replacedById], references: [id], onDelete: Restrict)
+  replaces     RefreshToken? @relation("Rotation")
+
+  @@index([sessionId])
+  @@map("refresh_tokens")
 }

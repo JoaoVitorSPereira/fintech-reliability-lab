@@ -3,6 +3,7 @@ import { validateEnv } from './env';
 const valid = {
   DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
   REDIS_URL: 'redis://localhost:6379',
+  JWT_ACCESS_SECRET: 'dev-only-secret-0123456789abcdefghij',
 };
 
 describe('validateEnv', () => {
@@ -23,6 +24,19 @@ describe('validateEnv', () => {
     expect(() =>
       validateEnv({ ...valid, DATABASE_URL: 'mysql://u:p@localhost/db' }),
     ).toThrow(/DATABASE_URL/);
+  });
+
+  it('refuses the dev placeholder JWT secret in production', () => {
+    expect(() => validateEnv({ ...valid, NODE_ENV: 'production' })).toThrow(
+      /JWT_ACCESS_SECRET/,
+    );
+    expect(() =>
+      validateEnv({
+        ...valid,
+        NODE_ENV: 'production',
+        JWT_ACCESS_SECRET: 'a-real-random-secret-0123456789abcdef',
+      }),
+    ).not.toThrow();
   });
 
   it('never echoes secret values in the error', () => {

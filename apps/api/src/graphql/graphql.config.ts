@@ -25,5 +25,7 @@ export function graphqlConfig(
       }),
     ],
     formatError: formatGraphqlError,
+    // The auth guard reads the Authorization header from here.
+    context: ({ req }: { req: unknown }) => ({ req }),
   };
 }

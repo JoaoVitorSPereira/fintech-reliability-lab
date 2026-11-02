@@ -1,8 +1,10 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { Public } from '../modules/identity/auth.guard';
 import { HealthReport, HealthStatus } from './health.model';
 import { HealthService } from './health.service';
 
 // Plain HTTP for load balancers/orchestrators. Not product API, so no OpenAPI.
+@Public()
 @Controller('health')
 export class HealthController {
   constructor(private readonly health: HealthService) {}

@@ -50,10 +50,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
-      - name: Apply migrations to the test database
-        run: pnpm --filter api exec prisma migrate deploy
-        env:
-          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+      # Jest globalSetup applies migrations to the test database first.
       - run: pnpm test
       - name: Committed GraphQL schema matches the code
         run: pnpm --filter api schema:check

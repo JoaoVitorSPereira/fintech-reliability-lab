@@ -2,6 +2,17 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
 # ------------------------------------------------------
 
+type AuthPayload {
+  """Short-lived JWT for the Authorization header."""
+  accessToken: String!
+  accessTokenExpiresAt: DateTime!
+
+  """Single-use. Store in secure storage; every refresh returns a new one."""
+  refreshToken: String!
+  refreshTokenExpiresAt: DateTime!
+  user: User!
+}
+
 """
 A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
 """
@@ -24,6 +35,59 @@ enum HealthStatus {
   OK
 }
 
+input LoginInput {
+  deviceName: String
+  email: String!
+  password: String!
+}
+
+type Mutation {
+  login(input: LoginInput!): AuthPayload!
+
+  """Sign out this device."""
+  logout: Boolean!
+
+  """
+  Exchange a refresh token for a new token pair. The old refresh token stops working.
+  """
+  refreshSession(refreshToken: String!): AuthPayload!
+  register(input: RegisterInput!): AuthPayload!
+
+  """Sign out one of your devices."""
+  revokeSession(id: ID!): Boolean!
+}
+
 type Query {
   health: Health!
+  me: User!
+
+  """Your active sessions."""
+  sessions: [Session!]!
+}
+
+input RegisterInput {
+  """Shown in the session list."""
+  deviceName: String
+  email: String!
+
+  """15 to 128 characters."""
+  password: String!
+}
+
+"""A signed-in device."""
+type Session {
+  createdAt: DateTime!
+
+  """True for the session making this request."""
+  current: Boolean!
+  deviceName: String
+  expiresAt: DateTime!
+  id: ID!
+  lastRefreshedAt: DateTime
+}
+
+type User {
+  createdAt: DateTime!
+  email: String!
+  id: ID!
 }

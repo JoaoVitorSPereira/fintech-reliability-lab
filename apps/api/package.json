@@ -23,6 +23,7 @@
     "@nestjs/config": "^12.0.1",
     "@nestjs/core": "^12.3.2",
     "@nestjs/graphql": "^14.1.0",
+    "@nestjs/jwt": "^12.0.3",
     "@nestjs/platform-express": "^12.3.2",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
@@ -67,6 +68,7 @@
     "setupFiles": [
       "<rootDir>/test/setup-env.ts"
     ],
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "globalSetup": "<rootDir>/test/global-setup.ts"
   }
 }

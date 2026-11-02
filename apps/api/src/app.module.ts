@@ -1,6 +1,7 @@
 import { ApolloDriver, type ApolloDriverConfig } from '@nestjs/apollo';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_FILTER } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { LoggerModule } from 'nestjs-pino';
 import { validateEnv } from './config/env';
@@ -10,6 +11,8 @@ import { HealthModule } from './health/health.module';
 import { DatabaseModule } from './infrastructure/database/prisma.service';
 import { loggerConfig } from './infrastructure/logging/logger.config';
 import { RedisModule } from './infrastructure/redis/redis.module';
+import { IdentityModule } from './modules/identity/identity.module';
+import { AppErrorFilter } from './shared/errors/app-error.filter';
 
 @Module({
   imports: [
@@ -26,7 +29,11 @@ import { RedisModule } from './infrastructure/redis/redis.module';
     DatabaseModule,
     RedisModule,
     HealthModule,
+    IdentityModule,
   ],
-  providers: [GraphqlLoggingPlugin],
+  providers: [
+    GraphqlLoggingPlugin,
+    { provide: APP_FILTER, useClass: AppErrorFilter },
+  ],
 })
 export class AppModule {}
