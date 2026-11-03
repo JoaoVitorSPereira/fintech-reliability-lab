@@ -45,6 +45,7 @@ export function subscriptionConfig(auth: AuthService, metrics?: Metrics) {
             if (!still) extra.socket?.close(UNAUTHORIZED, 'Unauthorized');
           });
         }, RECHECK_MS);
+        extra.recheck.unref(); // never keeps the process alive on shutdown
         openConnections++;
         metrics?.wsConnections.inc();
         logger.log(`connection opened (${openConnections} open)`);
