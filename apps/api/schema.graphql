@@ -8,6 +8,15 @@ type Account {
   createdAt: DateTime!
   currency: String!
   id: ID!
+
+  """PORTFOLIO_* accounts hold simulated paper-trading cash."""
+  purpose: AccountPurpose!
+}
+
+enum AccountPurpose {
+  CHECKING
+  PORTFOLIO_CASH
+  PORTFOLIO_RESERVED
 }
 
 type Asset {
@@ -218,10 +227,21 @@ type Money {
 }
 
 type Mutation {
+  cancelSimulatedOrder(orderId: ID!): SimulatedOrderResult!
+
+  """Creates your paper-trading portfolio. Safe to call again."""
+  createPortfolio: Portfolio!
+
+  """
+  Paper trade. Business rejections (stale price, insufficient cash) return a REJECTED order, not an error. Safe to retry with the same idempotencyKey.
+  """
+  createSimulatedOrder(input: SimulatedOrderInput!): SimulatedOrderResult!
+
   """
   Move money between accounts. Safe to retry with the same idempotencyKey.
   """
   createTransfer(input: CreateTransferInput!): TransferResult!
+  createWatchlistItem(assetId: ID!): WatchlistItem!
   login(input: LoginInput!): AuthPayload!
 
   """Sign out this device."""
@@ -232,6 +252,7 @@ type Mutation {
   """
   refreshSession(refreshToken: String!): AuthPayload!
   register(input: RegisterInput!): AuthPayload!
+  removeWatchlistItem(assetId: ID!): Boolean!
 
   """Sign out one of your devices."""
   revokeSession(id: ID!): Boolean!
@@ -242,9 +263,88 @@ type Mutation {
   simulateDeposit(input: SimulateDepositInput!): TransferResult!
 }
 
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum OrderStatus {
+  CANCELLED
+  FILLED
+  PENDING
+  REJECTED
+}
+
+enum OrderType {
+  LIMIT
+  MARKET
+}
+
 type PageInfo {
   endCursor: String
   hasNextPage: Boolean!
+}
+
+enum PerformanceRange {
+  ALL
+  DAY
+  MONTH
+  WEEK
+}
+
+"""A SIMULATED paper-trading portfolio. Cash is play money in USD."""
+type Portfolio {
+  """Available to spend."""
+  cash: Money!
+
+  """Fund it with simulateDeposit."""
+  cashAccountId: ID!
+
+  """Cash share of total value, percent."""
+  cashAllocationPct: String
+
+  """
+  Change of held positions over 24h, from each quote's 24h change. Null if any is unknown.
+  """
+  dayChange: Money
+  id: ID!
+  isSimulated: Boolean!
+  marketValue: Money!
+  performance(range: PerformanceRange! = WEEK): [ValuationPoint!]!
+  positions: [Position!]!
+  realizedPnl: Money!
+
+  """Held for open limit buys."""
+  reservedCash: Money!
+  totalPnl: Money!
+
+  """Cash + reserved cash + market value."""
+  totalValue: Money!
+  unrealizedPnl: Money!
+
+  """True if any holding is valued with a stale or missing price."""
+  valuationIsStale: Boolean!
+}
+
+type Position {
+  """Share of total portfolio value, percent."""
+  allocationPct: String
+  asset: Asset!
+
+  """Average acquisition price (average cost method)."""
+  averagePrice: String
+  costBasis: Money!
+
+  """Null when no price is available."""
+  marketValue: Money
+  priceIsStale: Boolean!
+  quantity: String!
+  realizedPnl: Money!
+
+  """Held for open limit sells."""
+  reservedQuantity: String!
+  unrealizedPnl: Money
+  unrealizedPnlPct: String
 }
 
 type ProviderStatus {
@@ -270,11 +370,16 @@ type Query {
   marketProviders: [ProviderStatus!]!
   me: User!
 
+  """Null until createPortfolio is called."""
+  portfolio: Portfolio
+
   """Your active sessions."""
   sessions: [Session!]!
+  simulatedOrders(after: String, first: Int!): SimulatedOrderConnection!
 
   """Statement for one of your accounts, newest first."""
   transactions(accountId: ID!, after: String, first: Int!): TransactionConnection!
+  watchlist: [WatchlistItem!]!
 }
 
 input RegisterInput {
@@ -306,6 +411,70 @@ input SimulateDepositInput {
   idempotencyKey: String!
 }
 
+type SimulatedOrder {
+  asset: Asset!
+  cancelledAt: DateTime
+  createdAt: DateTime!
+  disclaimer: String!
+  filledAt: DateTime
+  id: ID!
+
+  """Always true. This platform does not route orders to any exchange."""
+  isSimulated: Boolean!
+  limitPrice: String
+  portfolioId: ID!
+  quantity: String!
+  rejectReason: String
+
+  """Cash held for a pending limit buy."""
+  reservedCash: Money!
+  side: OrderSide!
+  status: OrderStatus!
+  trade: Trade
+  type: OrderType!
+}
+
+type SimulatedOrderConnection {
+  nodes: [SimulatedOrder!]!
+  pageInfo: PageInfo!
+}
+
+input SimulatedOrderInput {
+  assetId: ID!
+  idempotencyKey: String!
+
+  """Required for LIMIT orders."""
+  limitPrice: String
+
+  """Units, decimal string with up to 8 decimals."""
+  quantity: String!
+  side: OrderSide!
+  type: OrderType!
+}
+
+type SimulatedOrderResult {
+  order: SimulatedOrder!
+
+  """True when this idempotency key was already processed."""
+  replayed: Boolean!
+}
+
+"""A SIMULATED execution, never a real exchange fill."""
+type Trade {
+  executedAt: DateTime!
+  id: ID!
+  notional: Money!
+
+  """Reference price from market data, not an exchange fill price."""
+  price: String!
+  priceProvider: String!
+  priceTimestamp: DateTime!
+  quantity: String!
+
+  """Sells only."""
+  realizedPnl: Money
+}
+
 """One line of an account's statement (a ledger entry)."""
 type Transaction {
   """Positive = money in, negative = money out."""
@@ -326,6 +495,9 @@ type TransactionConnection {
 
 enum TransactionKind {
   DEPOSIT
+  ORDER_HOLD
+  ORDER_RELEASE
+  TRADE
   TRANSFER
 }
 
@@ -358,4 +530,15 @@ type User {
   createdAt: DateTime!
   email: String!
   id: ID!
+}
+
+type ValuationPoint {
+  at: DateTime!
+  isStale: Boolean!
+  totalValue: Money!
+}
+
+type WatchlistItem {
+  addedAt: DateTime!
+  asset: Asset!
 }

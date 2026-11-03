@@ -14,6 +14,7 @@ process.env['JWT_ACCESS_SECRET'] ??= 'test-only-secret-0123456789abcdefghijkl';
 export const FAKE_PROVIDER_PORT = 45_999;
 const fake = `http://127.0.0.1:${FAKE_PROVIDER_PORT}`;
 process.env['MARKET_INGESTION_ENABLED'] = 'false';
+process.env['ORDER_MATCHING_ENABLED'] = 'false';
 process.env['COINGECKO_BASE_URL'] = `${fake}/cg`;
 process.env['BINANCE_REST_URL'] = `${fake}/bn`;
 process.env['TWELVE_DATA_BASE_URL'] = `${fake}/td`;

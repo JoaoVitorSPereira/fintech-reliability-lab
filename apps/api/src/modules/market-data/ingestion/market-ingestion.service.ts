@@ -22,7 +22,7 @@ import { CoinGeckoAdapter } from '../providers/coingecko';
 import { TwelveDataAdapter } from '../providers/twelve-data';
 import { LIVE_MAX_AGE_MS, QuoteStore } from '../quote-store';
 import { BinanceStream } from './binance-stream';
-import { JobRunner } from './job-runner';
+import { JobRunner } from '../../../infrastructure/jobs/job-runner';
 
 export const PRICE_CHANNEL = 'md:prices';
 const PUBLISH_EVERY_MS = 1_000; // per asset: at most one fan-out per second

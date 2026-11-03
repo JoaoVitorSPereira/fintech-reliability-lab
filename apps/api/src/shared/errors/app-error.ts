@@ -10,7 +10,8 @@ export type AppErrorCode =
   | 'TOO_MANY_ATTEMPTS'
   | 'NOT_FOUND'
   | 'INSUFFICIENT_FUNDS'
-  | 'IDEMPOTENCY_KEY_REUSED';
+  | 'IDEMPOTENCY_KEY_REUSED'
+  | 'ORDER_NOT_PENDING';
 
 export class AppError extends Error {
   constructor(

@@ -1,8 +1,12 @@
 import { Field, ID, ObjectType, registerEnumType } from '@nestjs/graphql';
-import { LedgerTransactionKind } from '../../generated/prisma/enums';
+import {
+  AccountPurpose,
+  LedgerTransactionKind,
+} from '../../generated/prisma/enums';
 import { PageInfo } from '../../graphql/pagination';
 
 registerEnumType(LedgerTransactionKind, { name: 'TransactionKind' });
+registerEnumType(AccountPurpose, { name: 'AccountPurpose' });
 
 @ObjectType({
   description:
@@ -23,6 +27,11 @@ export class AccountModel {
 
   @Field()
   currency: string;
+
+  @Field(() => AccountPurpose, {
+    description: 'PORTFOLIO_* accounts hold simulated paper-trading cash.',
+  })
+  purpose: AccountPurpose;
 
   @Field(() => Money, {
     description: 'Authoritative: read from the database on every request.',

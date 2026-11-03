@@ -119,14 +119,12 @@ describe('Market data (e2e, against a fake provider)', () => {
 
   it('labels a quote STALE once its source timestamp is old', async () => {
     const { alpha } = await ingestTwoCoins();
-    await app
-      .get(QuoteStore)
-      .write([
-        {
-          assetId: alpha.id,
-          sourceTimestamp: new Date(Date.now() - 3_600_000).toISOString(),
-        },
-      ]);
+    await app.get(QuoteStore).write([
+      {
+        assetId: alpha.id,
+        sourceTimestamp: new Date(Date.now() - 3_600_000).toISOString(),
+      },
+    ]);
     const res = await gql<{
       asset: { quote: { isStale: boolean; dataQuality: string } };
     }>(

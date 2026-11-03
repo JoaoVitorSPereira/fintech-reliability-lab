@@ -16,7 +16,7 @@ export type Job = {
 // process when jobs need retries with state, priorities, or isolation from
 // API latency.
 export class JobRunner {
-  private readonly logger = new Logger('MarketJobs');
+  private readonly logger = new Logger('Jobs');
   private readonly timers: NodeJS.Timeout[] = [];
   private readonly running = new Set<string>();
 
@@ -30,7 +30,7 @@ export class JobRunner {
 
   async runOnce(job: Job): Promise<void> {
     if (this.running.has(job.name)) return; // previous run still going
-    const lockKey = `md:job:${job.name}`;
+    const lockKey = `job:lock:${job.name}`;
     const token = randomUUID();
     const locked = await this.redis
       .set(lockKey, token, 'PX', Math.max(job.everyMs - 1_000, 1_000), 'NX')

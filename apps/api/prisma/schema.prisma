@@ -15,15 +15,18 @@ datasource db {
 // instead of random pages, which keeps inserts cheap as tables grow.
 
 model User {
-  id           String    @id @default(uuid(7)) @db.Uuid
+  id           String           @id @default(uuid(7)) @db.Uuid
   /// Always lowercase; enforced by a CHECK constraint in the migration.
-  email        String    @unique
-  passwordHash String    @map("password_hash")
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  email        String           @unique
+  passwordHash String           @map("password_hash")
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
   sessions     Session[]
   accounts     Account[]
   transfers    Transfer[]
+  portfolio    Portfolio?
+  orders       SimulatedOrder[]
+  watchlist    WatchlistItem[]
 
   @@map("users")
 }
@@ -90,11 +93,24 @@ enum AccountKind {
   @@map("account_kind")
 }
 
+enum AccountPurpose {
+  /// The user's banking account (BRL).
+  CHECKING
+  /// Paper-trading cash available to spend (USD).
+  PORTFOLIO_CASH
+  /// Paper-trading cash held for open limit buy orders (USD).
+  PORTFOLIO_RESERVED
+
+  @@map("account_purpose")
+}
+
 model Account {
   id         String          @id @default(uuid(7)) @db.Uuid
   userId     String?         @map("user_id") @db.Uuid
   user       User?           @relation(fields: [userId], references: [id], onDelete: Restrict)
   kind       AccountKind
+  /// Null for system accounts.
+  purpose    AccountPurpose?
   /// Stable name for system accounts, e.g. "external-funding:BRL".
   systemCode String?         @unique @map("system_code")
   currency   String          @db.Char(3)
@@ -104,6 +120,8 @@ model Account {
   entries    LedgerEntry[]
   outgoing   Transfer[]      @relation("TransferFrom")
   incoming   Transfer[]      @relation("TransferTo")
+  cashOf     Portfolio?      @relation("PortfolioCash")
+  reservedOf Portfolio?      @relation("PortfolioReserved")
 
   /// Target of the composite FK that stops an entry's currency differing from its account's.
   @@unique([id, currency])
@@ -114,6 +132,11 @@ model Account {
 enum LedgerTransactionKind {
   DEPOSIT
   TRANSFER
+  /// Simulated trade settlement (cash <-> simulated market).
+  TRADE
+  /// Cash moved into / out of the reserved account for a limit buy.
+  ORDER_HOLD
+  ORDER_RELEASE
 
   @@map("ledger_transaction_kind")
 }
@@ -126,6 +149,7 @@ model LedgerTransaction {
   createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   entries     LedgerEntry[]
   transfer    Transfer?
+  trade       Trade?
 
   @@map("ledger_transactions")
 }
@@ -206,21 +230,25 @@ enum AssetCategory {
 }
 
 model Asset {
-  id               String        @id @default(uuid(7)) @db.Uuid
+  id               String           @id @default(uuid(7)) @db.Uuid
   category         AssetCategory
   symbol           String
   name             String
   /// Currency prices are quoted in (USD; Binance pairs quote in USDT, see ADR 0007).
-  quoteCurrency    String        @map("quote_currency")
-  logoUrl          String?       @map("logo_url")
-  marketCapRank    Int?          @map("market_cap_rank")
+  quoteCurrency    String           @map("quote_currency")
+  logoUrl          String?          @map("logo_url")
+  marketCapRank    Int?             @map("market_cap_rank")
   /// Provider identifiers. Null = that provider doesn't cover this asset.
-  coingeckoId      String?       @unique @map("coingecko_id")
-  binanceSymbol    String?       @unique @map("binance_symbol")
-  twelveDataSymbol String?       @unique @map("twelve_data_symbol")
-  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  coingeckoId      String?          @unique @map("coingecko_id")
+  binanceSymbol    String?          @unique @map("binance_symbol")
+  twelveDataSymbol String?          @unique @map("twelve_data_symbol")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
   candles          Candle[]
+  positions        Position[]
+  orders           SimulatedOrder[]
+  trades           Trade[]
+  watchers         WatchlistItem[]
 
   @@unique([category, symbol])
   @@map("assets")
@@ -255,4 +283,150 @@ model Candle {
 
   @@id([assetId, timeframe, openTime])
   @@map("candles")
+}
+
+// ---------------------------------------------------------------------------
+// Paper trading (Milestone 7). SIMULATED: no exchange, no real orders.
+// Cash moves through the ledger; positions are NUMERIC quantities.
+// ---------------------------------------------------------------------------
+
+model Portfolio {
+  id                String               @id @default(uuid(7)) @db.Uuid
+  userId            String               @unique @map("user_id") @db.Uuid
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  cashAccountId     String               @unique @map("cash_account_id") @db.Uuid
+  cashAccount       Account              @relation("PortfolioCash", fields: [cashAccountId], references: [id], onDelete: Restrict)
+  reservedAccountId String               @unique @map("reserved_account_id") @db.Uuid
+  reservedAccount   Account              @relation("PortfolioReserved", fields: [reservedAccountId], references: [id], onDelete: Restrict)
+  /// Incremented on every order/position change; used as the event sequence (Milestone 8).
+  version           Int                  @default(0)
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  positions         Position[]
+  orders            SimulatedOrder[]
+  trades            Trade[]
+  valuations        PortfolioValuation[]
+
+  @@map("portfolios")
+}
+
+model Position {
+  portfolioId      String    @map("portfolio_id") @db.Uuid
+  portfolio        Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Restrict)
+  assetId          String    @map("asset_id") @db.Uuid
+  asset            Asset     @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  quantity         Decimal   @db.Decimal(38, 18)
+  /// Held for open limit sell orders. Never more than quantity.
+  reservedQuantity Decimal   @default(0) @map("reserved_quantity") @db.Decimal(38, 18)
+  /// Total USD paid for the units still held (average cost method).
+  costBasis        Decimal   @map("cost_basis") @db.Decimal(38, 8)
+  realizedPnl      Decimal   @default(0) @map("realized_pnl") @db.Decimal(38, 8)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@id([portfolioId, assetId])
+  @@map("positions")
+}
+
+enum OrderSide {
+  BUY
+  SELL
+
+  @@map("order_side")
+}
+
+enum OrderType {
+  MARKET
+  LIMIT
+
+  @@map("order_type")
+}
+
+enum OrderStatus {
+  PENDING
+  FILLED
+  CANCELLED
+  REJECTED
+
+  @@map("order_status")
+}
+
+model SimulatedOrder {
+  id                String      @id @default(uuid(7)) @db.Uuid
+  portfolioId       String      @map("portfolio_id") @db.Uuid
+  portfolio         Portfolio   @relation(fields: [portfolioId], references: [id], onDelete: Restrict)
+  userId            String      @map("user_id") @db.Uuid
+  user              User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  assetId           String      @map("asset_id") @db.Uuid
+  asset             Asset       @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  side              OrderSide
+  type              OrderType
+  quantity          Decimal     @db.Decimal(38, 18)
+  limitPrice        Decimal?    @map("limit_price") @db.Decimal(38, 12)
+  status            OrderStatus
+  rejectReason      String?     @map("reject_reason")
+  /// Cash held in the reserved account for a pending limit buy (USD cents).
+  reservedCashMinor BigInt      @default(0) @map("reserved_cash_minor")
+  idempotencyKey    String      @map("idempotency_key")
+  requestHash       String      @map("request_hash")
+  correlationId     String?     @map("correlation_id")
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  filledAt          DateTime?   @map("filled_at") @db.Timestamptz(3)
+  cancelledAt       DateTime?   @map("cancelled_at") @db.Timestamptz(3)
+  trade             Trade?
+
+  @@unique([userId, idempotencyKey])
+  @@index([portfolioId, id])
+  /// The limit-order matcher scans this.
+  @@index([status, type])
+  @@map("simulated_orders")
+}
+
+/// A simulated execution. Append-only. One per order (no partial fills).
+model Trade {
+  id                  String            @id @default(uuid(7)) @db.Uuid
+  orderId             String            @unique @map("order_id") @db.Uuid
+  order               SimulatedOrder    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  portfolioId         String            @map("portfolio_id") @db.Uuid
+  portfolio           Portfolio         @relation(fields: [portfolioId], references: [id], onDelete: Restrict)
+  assetId             String            @map("asset_id") @db.Uuid
+  asset               Asset             @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  side                OrderSide
+  quantity            Decimal           @db.Decimal(38, 18)
+  /// Reference price from the market-data snapshot used for the fill.
+  price               Decimal           @db.Decimal(38, 12)
+  /// Cash that moved, USD cents (buy: rounded up; sell: rounded down).
+  notionalMinor       BigInt            @map("notional_minor")
+  realizedPnl         Decimal?          @map("realized_pnl") @db.Decimal(38, 8)
+  priceProvider       String            @map("price_provider")
+  priceTimestamp      DateTime          @map("price_timestamp") @db.Timestamptz(3)
+  ledgerTransactionId String            @unique @map("ledger_transaction_id") @db.Uuid
+  ledgerTransaction   LedgerTransaction @relation(fields: [ledgerTransactionId], references: [id], onDelete: Restrict)
+  executedAt          DateTime          @default(now()) @map("executed_at") @db.Timestamptz(3)
+
+  @@index([portfolioId, id])
+  @@map("trades")
+}
+
+/// Periodic snapshot for the performance chart.
+model PortfolioValuation {
+  portfolioId String    @map("portfolio_id") @db.Uuid
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Restrict)
+  at          DateTime  @db.Timestamptz(3)
+  totalValue  Decimal   @map("total_value") @db.Decimal(38, 8)
+  /// True if any position was valued with a stale price.
+  isStale     Boolean   @map("is_stale")
+
+  @@id([portfolioId, at])
+  @@map("portfolio_valuations")
+}
+
+model WatchlistItem {
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  assetId   String   @map("asset_id") @db.Uuid
+  asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@id([userId, assetId])
+  @@map("watchlist_items")
 }

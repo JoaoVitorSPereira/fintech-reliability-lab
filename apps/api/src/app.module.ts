@@ -16,6 +16,7 @@ import { IdentityModule } from './modules/identity/identity.module';
 import { LedgerModule } from './modules/ledger/ledger.module';
 import { TransfersModule } from './modules/transfers/transfers.module';
 import { MarketDataModule } from './modules/market-data/market-data.module';
+import { TradingModule } from './modules/trading/trading.module';
 import { AppErrorFilter } from './shared/errors/app-error.filter';
 
 @Module({
@@ -38,6 +39,7 @@ import { AppErrorFilter } from './shared/errors/app-error.filter';
     AccountsModule,
     TransfersModule,
     MarketDataModule,
+    TradingModule,
   ],
   providers: [
     GraphqlLoggingPlugin,

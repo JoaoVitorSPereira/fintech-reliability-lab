@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import type { Account, Prisma } from '../../generated/prisma/client';
+import type {
+  Account,
+  AccountPurpose,
+  Prisma,
+} from '../../generated/prisma/client';
 import {
   decodeCursor,
   isUuid,
@@ -23,6 +27,7 @@ export function toAccountView(account: Account) {
   return {
     id: account.id,
     currency: account.currency,
+    purpose: account.purpose ?? 'CHECKING',
     balance: moneyOf(account.balance, account.currency),
     createdAt: account.createdAt,
   };
@@ -36,9 +41,16 @@ function accountNotFound() {
 export class AccountsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Runs inside the caller's transaction (e.g. registration). */
-  openCustomerAccount(tx: Tx, userId: string, currency: Currency) {
-    return tx.account.create({ data: { userId, kind: 'CUSTOMER', currency } });
+  /** Runs inside the caller's transaction (registration, portfolio creation). */
+  openCustomerAccount(
+    tx: Tx,
+    userId: string,
+    currency: Currency,
+    purpose: AccountPurpose = 'CHECKING',
+  ) {
+    return tx.account.create({
+      data: { userId, kind: 'CUSTOMER', currency, purpose },
+    });
   }
 
   listOwned(viewer: Viewer) {

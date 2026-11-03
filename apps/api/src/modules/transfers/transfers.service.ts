@@ -36,6 +36,7 @@ type LockedAccount = {
   id: string;
   user_id: string | null;
   kind: 'CUSTOMER' | 'SYSTEM';
+  purpose: 'CHECKING' | 'PORTFOLIO_CASH' | 'PORTFOLIO_RESERVED' | null;
   currency: string;
   balance: bigint;
 };
@@ -187,7 +188,7 @@ export class TransfersService {
     // 1. Lock both accounts in ONE statement, in id order. Every transfer
     //    locks in the same global order, so A->B and B->A can't deadlock.
     const locked = await tx.$queryRaw<LockedAccount[]>`
-      SELECT id, user_id, kind::text AS kind, currency, balance
+      SELECT id, user_id, kind::text AS kind, purpose::text AS purpose, currency, balance
       FROM accounts
       WHERE id IN (${command.fromAccountId}::uuid, ${command.toAccountId}::uuid)
       ORDER BY id
@@ -254,7 +255,20 @@ export class TransfersService {
     if (!from || (!isDeposit && from.user_id !== command.viewer.userId)) {
       throw notFound('Account');
     }
-    if (!to || to.kind !== 'CUSTOMER') throw notFound('Recipient account');
+    // Transfers move banking money only. Paper-trading cash enters through
+    // simulated deposits and is otherwise moved only by the order engine
+    // (under the portfolio lock), so its balance checks can't be raced.
+    const isTransferable = (account: LockedAccount) =>
+      account.kind === 'CUSTOMER' && account.purpose === 'CHECKING';
+    if (!isDeposit && !isTransferable(from)) throw notFound('Account');
+    if (
+      !to ||
+      (isDeposit
+        ? to.kind !== 'CUSTOMER' || to.purpose === 'PORTFOLIO_RESERVED'
+        : !isTransferable(to))
+    ) {
+      throw notFound('Recipient account');
+    }
     if (isDeposit && to.user_id !== command.viewer.userId)
       throw notFound('Account');
     if (from.currency !== to.currency || !isCurrency(from.currency)) {
