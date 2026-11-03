@@ -520,7 +520,8 @@ On a physical device, use your computer's LAN IP in `EXPO_PUBLIC_API_URL`.
 
 | Command | What it does |
 | --- | --- |
-| `pnpm test` | API + mobile tests (needs `docker compose up`) |
+| `pnpm test` | API + mobile tests (needs `docker compose up`); the two suites that drain the shared outbox run serially |
+| `pnpm --filter api jest test/<file>` | One API test file |
 | `pnpm typecheck` / `pnpm lint` | `tsc` everywhere / `oxlint --type-aware` on the API |
 | `pnpm --filter api bench` | Performance experiments (prints a markdown table) |
 | `pnpm --filter api ledger:verify` | Reconcile the ledger; exit 1 on drift (run after `pnpm --filter api build`) |
