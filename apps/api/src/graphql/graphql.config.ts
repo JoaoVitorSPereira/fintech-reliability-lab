@@ -25,6 +25,11 @@ export function graphqlConfig(
         n: config.get('GRAPHQL_MAX_DEPTH', { infer: true }),
         ignoreIntrospection: true,
         exposeLimits: false,
+        // Fragments are reuse, not nesting: count the fields they expand to.
+        flattenFragments: true,
+        // Report as a validation error (400), not a thrown 500.
+        propagateOnRejection: false,
+        onReject: [(context, error) => context?.reportError(error)],
       }),
     ],
     formatError: formatGraphqlError,
