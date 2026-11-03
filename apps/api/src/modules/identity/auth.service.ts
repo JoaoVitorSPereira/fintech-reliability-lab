@@ -5,6 +5,7 @@ import { Prisma, type User } from '../../generated/prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { AppError } from '../../shared/errors/app-error';
 import { AccountsService } from '../accounts/accounts.service';
+import { Metrics } from '../../infrastructure/metrics/metrics';
 import { AccessTokens } from './access-tokens';
 import { loginSchema, parseInput, registerSchema } from './inputs';
 import { LoginThrottle } from './login-throttle';
@@ -60,6 +61,7 @@ export class AuthService {
     private readonly accessTokens: AccessTokens,
     private readonly throttle: LoginThrottle,
     private readonly accounts: AccountsService,
+    private readonly metrics: Metrics,
     @InjectPinoLogger(AuthService.name) private readonly logger: PinoLogger,
   ) {}
 
@@ -93,7 +95,10 @@ export class AuthService {
 
   async login(input: unknown): Promise<AuthResult> {
     const { email, password, deviceName } = parseInput(loginSchema, input);
-    await this.throttle.assertAllowed(email);
+    await this.throttle.assertAllowed(email).catch((error: unknown) => {
+      this.metrics.authFailures.inc({ reason: 'throttled' });
+      throw error;
+    });
 
     const user = await this.prisma.user.findUnique({ where: { email } });
     const valid = await verifyPassword(
@@ -103,6 +108,7 @@ export class AuthService {
 
     if (!user || !valid) {
       await this.throttle.recordFailure(email);
+      this.metrics.authFailures.inc({ reason: 'invalid_credentials' });
       this.logger.info({ userId: user?.id ?? null }, 'login failed');
       // Same error for "no such user" and "wrong password".
       throw new AppError('INVALID_CREDENTIALS', 'Invalid email or password.');
@@ -213,7 +219,10 @@ export class AuthService {
       where: { tokenHash },
       select: { sessionId: true },
     });
-    if (!found) return { ok: false };
+    if (!found) {
+      this.metrics.refreshAttempts.inc({ outcome: 'unknown_token' });
+      return { ok: false };
+    }
 
     // Serialize every refresh of this session. Prisma has no row-lock API,
     // hence raw SQL (ADR 0002).
@@ -228,6 +237,7 @@ export class AuthService {
     });
     const now = new Date();
     const decision = decideRefresh(token, token.session, now);
+    this.metrics.refreshAttempts.inc({ outcome: decision });
 
     switch (decision) {
       case 'reject':

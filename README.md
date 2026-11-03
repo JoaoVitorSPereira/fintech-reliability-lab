@@ -17,18 +17,22 @@ A banking + paper-trading platform built to practise the parts of financial syst
 1. [What it does](#what-it-does)
 2. [System architecture](#system-architecture)
 3. [Backend modules](#backend-modules)
-4. [GraphQL API](#graphql-api)
-5. [Ledger](#ledger)
-6. [Transfers](#transfers)
-7. [Market data](#market-data)
-8. [Simulated trading](#simulated-trading)
-9. [Events, outbox and subscriptions](#events-outbox-and-subscriptions)
-10. [Authentication](#authentication)
-11. [Mobile app](#mobile-app)
-12. [Testing](#testing)
-13. [Observability and security](#observability-and-security)
-14. [Local development](#local-development)
-15. [Decisions and known limits](#decisions-and-known-limits)
+4. [Database schema](#database-schema)
+5. [GraphQL API](#graphql-api)
+6. [Ledger](#ledger)
+7. [Transfers](#transfers)
+8. [Market data](#market-data)
+9. [Redis caching](#redis-caching)
+10. [Simulated trading](#simulated-trading)
+11. [Portfolio calculations](#portfolio-calculations)
+12. [Events, outbox and subscriptions](#events-outbox-and-subscriptions)
+13. [Authentication](#authentication)
+14. [Mobile app](#mobile-app)
+15. [Testing](#testing)
+16. [Observability and security](#observability-and-security)
+17. [Infrastructure](#infrastructure)
+18. [Local development](#local-development)
+19. [Decisions and known limits](#decisions-and-known-limits)
 
 ## What it does
 
@@ -92,6 +96,73 @@ apps/api/src
 
 Resolvers translate GraphQL ↔ services and hold no business rules. Authorization lives in the services (`WHERE id = $1 AND user_id = $viewer`), so another user's resource is indistinguishable from a missing one.
 
+## Database schema
+
+PostgreSQL is the source of truth. Prisma models plus hand-written SQL in the migrations for what Prisma can't express (CHECK constraints, triggers, deferred FKs, partial indexes).
+
+```mermaid
+erDiagram
+  users ||--o{ sessions : "signs in on"
+  sessions ||--o{ refresh_tokens : "rotates"
+  users ||--o{ accounts : owns
+  accounts ||--o{ ledger_entries : "balance = SUM(amount)"
+  ledger_transactions ||--|{ ledger_entries : "2+ entries, sum 0"
+  users ||--o{ transfers : initiates
+  transfers ||--|| ledger_transactions : "settled by"
+  users ||--o| portfolios : has
+  portfolios ||--|| accounts : "cash + reserved (USD)"
+  portfolios ||--o{ positions : holds
+  portfolios ||--o{ simulated_orders : places
+  simulated_orders ||--o| trades : "filled by"
+  trades ||--|| ledger_transactions : "settled by"
+  portfolios ||--o{ portfolio_valuations : "snapshots"
+  assets ||--o{ candles : "OHLCV history"
+  assets ||--o{ positions : ""
+  users ||--o{ watchlist_items : follows
+  assets ||--o{ watchlist_items : ""
+  outbox_events }o--|| accounts : "aggregate (account/portfolio)"
+
+  accounts {
+    uuid id PK
+    enum kind "CUSTOMER | SYSTEM"
+    enum purpose "CHECKING | PORTFOLIO_CASH | PORTFOLIO_RESERVED"
+    char currency
+    bigint balance "trigger-maintained, CHECK >= 0 for customers"
+    int version "event sequence"
+  }
+  ledger_entries {
+    uuid id PK
+    uuid transaction_id FK
+    uuid account_id FK "(account_id, currency) composite FK"
+    bigint amount "non-zero, append-only"
+  }
+  transfers {
+    uuid id PK
+    text idempotency_key "UNIQUE (user_id, key)"
+    text request_hash
+    bigint amount
+    text correlation_id
+  }
+  simulated_orders {
+    uuid id PK
+    enum status "PENDING -> FILLED | CANCELLED, or REJECTED"
+    numeric quantity "38,18"
+    numeric limit_price
+    text idempotency_key "UNIQUE (user_id, key)"
+  }
+  outbox_events {
+    uuid id PK
+    text aggregate_type
+    uuid aggregate_id
+    int sequence "UNIQUE per aggregate"
+    jsonb payload
+    timestamptz published_at
+    int attempts
+  }
+```
+
+Every table uses UUIDv7 ids (time-ordered, index-friendly; also the keyset cursor). Migrations: `apps/api/prisma/migrations`.
+
 ## GraphQL API
 
 Code-first schema; the generated SDL ([`apps/api/schema.graphql`](apps/api/schema.graphql)) is committed and CI fails on drift. The mobile app's types are generated from it, so CI also fails if a server change breaks the client.
@@ -117,9 +188,9 @@ sequenceDiagram
   Note over L: UNAUTHENTICATED → one shared refresh → replay once
 ```
 
-- **Money is never a number on the wire:** `Money { amount: "1050.25", currency }`.
+- **Exact decimals:** a `Decimal` scalar (string on the wire, validated both ways) for every amount, price, quantity and percentage, e.g. `Money { amount: Decimal, currency }`. GraphQL `Float` would be binary floating point, `Int` is 32-bit.
 - **Errors:** expected failures carry stable codes (`INSUFFICIENT_FUNDS`, `IDEMPOTENCY_KEY_REUSED`, `NOT_FOUND`, …). Anything else becomes `INTERNAL_SERVER_ERROR`, on HTTP and WebSocket alike.
-- **Limits:** query depth limit (fragments flattened), page sizes ≤ 100, ≤ 1000 candles per request, ≤ 50 assets per price subscription.
+- **Limits (HTTP 400, never 500):** query depth (fragments flattened), query **cost** (objects weigh more than scalars, multiplied by depth), at most 15 aliases. Plus page sizes ≤ 100, ≤ 1000 candles per request, ≤ 50 assets per price subscription. A test runs every operation the mobile app sends through these rules.
 
 ## Ledger
 
@@ -215,6 +286,25 @@ sequenceDiagram
 
 Details and provider limits: [ADR 0007](docs/adr/0007-market-data-providers-and-ingestion.md)
 
+## Redis caching
+
+Redis holds only what can be rebuilt; balances are always read from Postgres.
+
+| Key | Holds | Lifetime | Written by |
+| --- | --- | --- | --- |
+| `md:quote:{assetId}` (hash) | price, 24h change, volume, market cap, provider, timestamps | 24h TTL; freshness judged from timestamps at read time | listings job, stock job, Binance stream |
+| `md:overview` (hash) | total crypto market cap, BTC dominance | overwritten every listings run | listings job |
+| `md:candles:refresh:{asset}:{tf}` | "someone is already fetching this chart" | 15s to 15 min, by timeframe | chart queries |
+| `md:provider:{name}:budget:{minute}` | calls made this minute | 2 min | every provider call |
+| `md:provider:{name}:cooldown` | provider said 429 | `Retry-After` (default 60s) | provider client |
+| `job:lock:{job}` | one instance runs a job per interval | interval − 1s | job runner |
+| `auth:login-failures:{sha256(email)}` | failed logins | 15 min | login |
+| channels `md:prices`, `events:account`, `events:portfolio` | live fan-out | pub/sub, not stored | stream, outbox publisher |
+
+Freshness windows and refresh intervals are env-configurable (`QUOTE_LIVE_MAX_AGE_SECONDS`, `CRYPTO_QUOTE_STALE_AFTER_SECONDS`, `STOCK_QUOTE_STALE_AFTER_SECONDS`, `TRADE_MAX_PRICE_AGE_SECONDS`, `*_INTERVAL_SECONDS`) so they can follow a provider plan.
+
+**Volatility indicators.** Realized volatility per asset, computed in one SQL statement from stored hourly candles: the standard deviation of hourly log returns, annualized by √8760 (24/7 markets). Reported for 24h and 7d, with the 24h high–low range. It is `null` below 12 (24h) or 48 (7d) hourly returns. This describes the past, not a forecast.
+
 ## Simulated trading
 
 Each portfolio owns two USD ledger accounts (available cash, reserved for limit buys) whose counterparty is `simulated-market:USD`. Positions store quantity (18 decimals), reserved quantity, cost basis and realized P&L.
@@ -256,6 +346,23 @@ sequenceDiagram
 ```
 
 Details: [ADR 0008](docs/adr/0008-simulated-trading.md)
+
+## Portfolio calculations
+
+All in decimal arithmetic (decimal.js); cash in integer cents.
+
+| Figure | Formula |
+| --- | --- |
+| Buy cost / sell proceeds | `ceil(qty × price × 100)` / `floor(qty × price × 100)` cents |
+| Average price | `cost basis / quantity` (average-cost method) |
+| Cost of units sold | `cost basis × sold / quantity` (all of it when the position closes, so no dust) |
+| Realized P&L (per sell) | `proceeds − cost of units sold` |
+| Market value | `quantity × latest price` (flagged stale if the price is) |
+| Unrealized P&L | `market value − cost basis` |
+| Total value | `available cash + reserved cash + Σ market value` |
+| Total return % | `(total value − net simulated deposits) / net deposits × 100` |
+| Holdings, last 24h | `Σ (market value − market value / (1 + 24h change))`; null if any change is unknown |
+| Allocation % | `market value (or cash) / total value × 100` |
 
 ## Events, outbox and subscriptions
 
@@ -339,7 +446,7 @@ On the client, a `SessionManager` keeps the access token in memory and the refre
 | Types | GraphQL Code Generator (client preset) from the API's committed SDL |
 | UI state | Zustand (timeframe, chart mode, market tab and sort), read with selectors; server data is never copied into it |
 | Forms | React Hook Form + Zod, mirroring server rules |
-| Charts | Victory Native 42 on Skia: line, area, candlestick, volume bars; data downsampled for display |
+| Charts | Victory Native 42 on Skia: line, area, candlestick, volume bars; pinch-zoom and pan on time, long-press crosshair with the exact candle; 1m to 1M (only timeframes the provider offers); data downsampled for display |
 | Styling | styled-components with light/dark theme tokens |
 | Retries | Queries on network errors; mutations only if they carry an idempotency key; one key per user intent, rotated after success |
 | Money in the UI | Formatted from strings; never parsed into floats (only chart pixels use numbers) |
@@ -364,11 +471,35 @@ CI (GitHub Actions) runs typecheck, lint, all API and mobile tests against Postg
 ## Observability and security
 
 - **Structured logs (pino)** with a request id on every line, echoed as `x-request-id` and stored as `correlation_id` on transfers, orders and outbox events.
+- **Prometheus metrics** at `GET /metrics` (optionally behind `METRICS_TOKEN`). Labels come only from closed sets (schema field names, providers, error codes), never user data.
+
+| Metric | Covers |
+| --- | --- |
+| `graphql_operation_duration_seconds{type,outcome}` | request duration and failures |
+| `graphql_resolver_duration_seconds{field}` | root Query/Mutation fields |
+| `db_query_duration_seconds` | every SQL statement Prisma issues |
+| `dataloader_batch_size{loader}` | batching effectiveness |
+| `ws_connections`, `ws_disconnects_total` | subscription connections |
+| `market_provider_request_duration_seconds{provider,outcome}`, `market_provider_rate_limited_total{provider,reason}` | provider latency, 429s, local budget/cooldown/circuit refusals |
+| `market_stream_seconds_since_last_message` | live-feed freshness |
+| `outbox_pending_events`, `outbox_oldest_pending_age_seconds`, `outbox_dead_lettered_events`, `outbox_published_total`, `outbox_publish_failures_total` | event pipeline health and delay |
+| `event_recovery_requests_total{stream}` | clients catching up after reconnects |
+| `auth_failures_total{reason}`, `auth_refresh_attempts_total{outcome}` | login failures, throttling, refresh rotations, reuse detection |
+| `financial_operation_failures_total{operation,code}` | rejected transfers, deposits, orders |
 - **Logged:** GraphQL operation name, type, duration and error codes; provider latency, 429s, circuit state; outbox backlog; job durations; WebSocket connection counts.
 - **Never logged:** variables, tokens, passwords, balances. Redaction is a second layer of protection.
 - **Health:** `/health/live` (process only) vs `/health/ready` (Postgres + Redis with timeouts).
 - **Production hardening:** introspection and GraphiQL off, CSRF prevention, depth limit, internal errors masked.
 - **Configuration:** env validated with Zod at boot (fails without echoing values). The dev JWT secret is refused in production. Provider keys are optional and never committed.
+
+## Infrastructure
+
+- **Docker Compose:** Postgres 17 (dev database + a separate `fintech_test` database) and Redis 7, with health checks. The API runs on the host in development.
+- **Migrations:** Prisma migrations with hand-written SQL appended (triggers, CHECKs, deferred FKs); `prisma migrate diff` stays empty, so Prisma never drops them.
+- **Configuration:** one Zod schema validates the env at boot. Every variable is documented in `apps/api/.env.example`; secrets and provider keys are never committed.
+- **CI (GitHub Actions):** install with a frozen lockfile → typecheck → lint → API and mobile tests against Postgres/Redis service containers → GraphQL schema drift check → mobile codegen drift check.
+- **Supply chain:** pnpm with an explicit allowlist for install scripts (`allowBuilds`, telemetry denied) and a minimum release age for new versions.
+- **Docs:** OpenAPI (Swagger UI at `/docs` outside production) for the REST health endpoints; GraphQL SDL committed in `apps/api/schema.graphql`.
 
 ## Local development
 
@@ -389,7 +520,8 @@ On a physical device, use your computer's LAN IP in `EXPO_PUBLIC_API_URL`.
 
 | Command | What it does |
 | --- | --- |
-| `pnpm test` | API + mobile tests (needs `docker compose up`) |
+| `pnpm test` | API + mobile tests (needs `docker compose up`); the two suites that drain the shared outbox run serially |
+| `pnpm --filter api jest test/<file>` | One API test file |
 | `pnpm typecheck` / `pnpm lint` | `tsc` everywhere / `oxlint --type-aware` on the API |
 | `pnpm --filter api bench` | Performance experiments (prints a markdown table) |
 | `pnpm --filter api ledger:verify` | Reconcile the ledger; exit 1 on drift (run after `pnpm --filter api build`) |
@@ -414,11 +546,14 @@ Architecture Decision Records live in [`docs/adr`](docs/adr):
 | [0009](docs/adr/0009-transactional-outbox.md) | Transactional outbox, at-least-once |
 | [0010](docs/adr/0010-graphql-subscriptions.md) | graphql-ws subscriptions |
 | [0011](docs/adr/0011-mobile-app-architecture.md) | Mobile app architecture |
+| [0012](docs/adr/0012-spec-deviations.md) | Where and why the code differs from the brief |
 
 **Known limits (deliberate, documented):**
 - No per-IP rate limits, JWT key rotation, email verification, or "password change revokes other sessions" yet.
 - Recipients are addressed by account id (a real bank uses an account number or key plus a name-confirmation step).
 - `simulated-market:USD` is a hot row: trades across all users serialize on it.
 - In-process workers; move them to a separate process or queue when isolation matters. Scheduled jobs take a Redis lock per run, but each instance with `MARKET_INGESTION_ENABLED=true` opens its own Binance stream: enable ingestion on one instance.
-- No metrics export (Prometheus/OpenTelemetry), no network load test (k6), no on-device React Native profiling yet.
+- No distributed tracing (OpenTelemetry), no network load test (k6), no on-device React Native profiling yet.
+- The GraphQL depth/cost/alias limits apply to HTTP. WebSocket subscriptions rely on their own argument limits (≤ 50 assets, ownership checks).
+- Alpha Vantage, Financial Modeling Prep and Yahoo Finance were evaluated but not integrated: free tiers that are too small, or no official API ([ADR 0007](docs/adr/0007-market-data-providers-and-ingestion.md)).
 - Stock coverage depends on a free Twelve Data key; Binance prices are USDT, treated as USD for paper trading.

@@ -41,9 +41,10 @@ export class JobRunner {
     const started = Date.now();
     try {
       const summary = await job.run();
-      this.logger.log(
-        `${job.name} ok in ${Date.now() - started}ms: ${summary}`,
-      );
+      // Frequent jobs (the 2s order matcher) would flood info logs.
+      const message = `${job.name} ok in ${Date.now() - started}ms: ${summary}`;
+      if (job.everyMs < 60_000) this.logger.debug(message);
+      else this.logger.log(message);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(

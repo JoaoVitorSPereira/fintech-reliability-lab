@@ -9,6 +9,7 @@ import type { Redis } from 'ioredis';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { Env } from '../../../config/env';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { Metrics } from '../../../infrastructure/metrics/metrics';
 import { REDIS } from '../../../infrastructure/redis/redis.module';
 import {
   KNOWN_ETFS,
@@ -20,7 +21,7 @@ import { ProviderError } from '../market-data.types';
 import { BinanceAdapter, type MiniTicker } from '../providers/binance';
 import { CoinGeckoAdapter } from '../providers/coingecko';
 import { TwelveDataAdapter } from '../providers/twelve-data';
-import { LIVE_MAX_AGE_MS, QuoteStore } from '../quote-store';
+import { QuoteStore } from '../quote-store';
 import { BinanceStream } from './binance-stream';
 import { JobRunner } from '../../../infrastructure/jobs/job-runner';
 
@@ -56,8 +57,18 @@ export class MarketIngestionService
     @Inject(REDIS) private readonly redis: Redis,
     @InjectPinoLogger(MarketIngestionService.name)
     private readonly logger: PinoLogger,
+    metrics: Metrics,
   ) {
     this.runner = new JobRunner(redis);
+    // Freshness of the live feed, read on scrape. Alert if it grows past ~60s.
+    metrics.gaugeOnScrape(
+      'market_stream_seconds_since_last_message',
+      'Seconds since the Binance stream last delivered a frame (-1 = stream not running)',
+      () => {
+        const age = this.stream?.secondsSinceLastMessage ?? -1;
+        return Number.isFinite(age) ? age : -1;
+      },
+    );
   }
 
   onApplicationBootstrap(): void {
@@ -68,25 +79,33 @@ export class MarketIngestionService
     );
     this.runner.schedule({
       name: 'crypto-listings',
-      everyMs: 5 * MINUTE,
+      everyMs:
+        this.config.get('CRYPTO_LISTINGS_INTERVAL_SECONDS', { infer: true }) *
+        1000,
       initialDelayMs: 1_000,
       run: () => this.syncCryptoListings(),
     });
     this.runner.schedule({
       name: 'stock-quotes',
-      everyMs: 30 * MINUTE,
+      everyMs:
+        this.config.get('STOCK_QUOTES_INTERVAL_SECONDS', { infer: true }) *
+        1000,
       initialDelayMs: 5_000,
       run: () => this.syncStockQuotes(),
     });
     this.runner.schedule({
       name: 'crypto-hourly-candles',
-      everyMs: 60 * MINUTE,
+      everyMs:
+        this.config.get('CRYPTO_CANDLES_INTERVAL_SECONDS', { infer: true }) *
+        1000,
       initialDelayMs: 20_000,
       run: () => this.syncHourlyCandles('CRYPTO'),
     });
     this.runner.schedule({
       name: 'stock-hourly-candles',
-      everyMs: 180 * MINUTE,
+      everyMs:
+        this.config.get('STOCK_CANDLES_INTERVAL_SECONDS', { infer: true }) *
+        1000,
       initialDelayMs: 90_000,
       run: () => this.syncHourlyCandles('STOCK'),
     });
@@ -152,7 +171,8 @@ export class MarketIngestionService
       const current = existing.get(asset.id);
       const streamIsLive =
         current?.provider === 'binance-stream' &&
-        now.getTime() - Date.parse(current.sourceTimestamp) < LIVE_MAX_AGE_MS;
+        now.getTime() - Date.parse(current.sourceTimestamp) <
+          this.quotes.freshness.liveMaxAgeMs;
       writes.push({
         assetId: asset.id,
         marketCap: row.marketCap,
@@ -230,7 +250,7 @@ export class MarketIngestionService
     return `${updated}/${this.stocks.symbols.length} stocks`;
   }
 
-  /** Keeps 48h of hourly candles warm for sparklines and the default chart. */
+  /** Keeps 8 days of hourly candles warm: sparklines, the default chart and 7-day volatility. */
   async syncHourlyCandles(kind: 'CRYPTO' | 'STOCK'): Promise<string> {
     const assets = await this.prisma.asset.findMany({
       where:
@@ -240,7 +260,7 @@ export class MarketIngestionService
     });
     const to = new Date();
     const from = new Date(
-      to.getTime() - (kind === 'CRYPTO' ? 48 : 24 * 5) * 60 * MINUTE,
+      to.getTime() - (kind === 'CRYPTO' ? 24 * 8 : 24 * 5) * 60 * MINUTE,
     );
     let synced = 0;
     for (const asset of assets) {

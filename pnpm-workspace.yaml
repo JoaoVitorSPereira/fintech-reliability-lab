@@ -5,3 +5,4 @@ allowBuilds:
   '@parcel/watcher': false
   '@prisma/engines': true
   prisma: true
+  '@scarf/scarf': false # install-time telemetry pulled in by swagger-ui-dist

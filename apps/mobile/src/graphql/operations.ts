@@ -42,12 +42,16 @@ export const RevokeSessionDocument = graphql(`mutation RevokeSession($id: ID!) {
 
 export const DashboardDocument = graphql(`
   query Dashboard {
-    portfolio { id totalValue { amount currency } dayChange { amount currency } totalPnl { amount currency } valuationIsStale }
+    portfolio {
+      id totalValue { amount currency } dayChange { amount currency } totalPnl { amount currency } valuationIsStale
+      totalReturnPct cashAllocationPct positions { allocationPct asset { id symbol } }
+    }
     marketOverview {
       totalMarketCapUsd marketCapChange24hPct btcDominancePct asOf
       topGainers { ...AssetRowFields }
       topLosers { ...AssetRowFields }
       mostTraded { ...AssetRowFields }
+      mostVolatile { ...AssetRowFields volatility { annualized7dPct } }
       indexProxies { ...AssetRowFields }
       providers { name status note }
     }
@@ -67,7 +71,10 @@ export const AssetsDocument = graphql(`
 
 export const AssetDetailDocument = graphql(`
   query AssetDetail($id: ID!) {
-    asset(id: $id) { ...AssetRowFields supportedTimeframes }
+    asset(id: $id) {
+      ...AssetRowFields supportedTimeframes
+      volatility { annualized24hPct annualized7dPct range24hPct sampleHours }
+    }
     watchlist { asset { id } }
   }
 `);
@@ -104,6 +111,7 @@ export const PortfolioDocument = graphql(`
       cash { amount currency } reservedCash { amount currency } marketValue { amount currency }
       totalValue { amount currency } unrealizedPnl { amount currency } realizedPnl { amount currency }
       totalPnl { amount currency } dayChange { amount currency } cashAllocationPct
+      totalReturnPct netDeposits { amount currency }
       positions {
         quantity reservedQuantity averagePrice allocationPct unrealizedPnlPct priceIsStale
         costBasis { amount currency } marketValue { amount currency } unrealizedPnl { amount currency } realizedPnl { amount currency }

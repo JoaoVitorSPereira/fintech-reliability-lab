@@ -10,6 +10,7 @@ import {
 import type { Asset } from '../../generated/prisma/client';
 import { AssetCategory, ChartTimeframe } from '../../generated/prisma/enums';
 import { PageInfo, pageSize } from '../../graphql/pagination';
+import { DecimalScalar } from '../../graphql/scalars/decimal.scalar';
 import { AppError } from '../../shared/errors/app-error';
 import { MarketDataLoaders } from './market-data.loaders';
 import {
@@ -22,9 +23,10 @@ import {
   MarketPriceModel,
   MarketStatus,
   ProviderStatusModel,
+  VolatilityModel,
 } from './market-data.models';
 import { MarketDataService } from './market-data.service';
-import { assessQuote } from './quote-store';
+import { QuoteStore } from './quote-store';
 
 // Offset cursors are fine for a bounded, in-memory-sorted list (see
 // MarketDataService.listAssets). Statements use keyset cursors instead.
@@ -45,6 +47,7 @@ export class MarketDataResolver {
   constructor(
     private readonly marketData: MarketDataService,
     private readonly loaders: MarketDataLoaders,
+    private readonly quoteStore: QuoteStore,
   ) {}
 
   @Query(() => AssetConnection)
@@ -110,7 +113,7 @@ export class MarketDataResolver {
   async quote(@Parent() asset: Asset): Promise<MarketPriceModel | null> {
     const quote = await this.loaders.quotes.load(asset.id);
     if (!quote) return null;
-    const assessment = assessQuote(quote, asset.category);
+    const assessment = this.quoteStore.assess(quote, asset.category);
     return {
       assetId: asset.id,
       price: quote.price,
@@ -127,12 +130,17 @@ export class MarketDataResolver {
     };
   }
 
-  @ResolveField(() => [String], {
+  @ResolveField(() => [DecimalScalar], {
     description:
       'Hourly closes for the last 24h, oldest first. Empty if not yet ingested.',
   })
   sparkline(@Parent() asset: Asset): Promise<string[]> {
     return this.loaders.sparklines.load(asset.id);
+  }
+
+  @ResolveField(() => VolatilityModel, { nullable: true })
+  volatility(@Parent() asset: Asset): Promise<VolatilityModel | null> {
+    return this.loaders.volatility.load(asset.id);
   }
 
   @ResolveField(() => [ChartTimeframe], {

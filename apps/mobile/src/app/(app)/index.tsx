@@ -1,6 +1,7 @@
 import { useQuery } from '@apollo/client/react';
 import { Link } from 'expo-router';
 import { RefreshControl } from 'react-native';
+import { AllocationBar } from '@/components/charts';
 import { AssetRow } from '@/components/market';
 import { Banner, BannerText, Body, Button, Caption, Card, Delta, Display, ErrorState, Loading, Row, Screen, SectionTitle } from '@/components/ui';
 import { DashboardDocument } from '@/graphql/operations';
@@ -37,8 +38,21 @@ export default function Dashboard() {
             </Row>
             <Row>
               <Caption>Total P&L</Caption>
-              <Delta value={portfolio.totalPnl.amount}>{formatMoney(portfolio.totalPnl.amount, 'USD', { signed: true })}</Delta>
+              <Delta value={portfolio.totalPnl.amount}>
+                {formatMoney(portfolio.totalPnl.amount, 'USD', { signed: true })}
+                {portfolio.totalReturnPct ? ` (${formatPercent(portfolio.totalReturnPct)})` : ''}
+              </Delta>
             </Row>
+            <AllocationBar
+              slices={[
+                { label: 'Cash', pct: Number(portfolio.cashAllocationPct ?? 0) },
+                ...portfolio.positions.filter((p) => p.allocationPct).map((p) => ({ label: p.asset.symbol, pct: Number(p.allocationPct) })),
+              ]}
+            />
+            <Caption>
+              Allocation: cash {portfolio.cashAllocationPct ?? '0'}%
+              {portfolio.positions.filter((p) => p.allocationPct).map((p) => ` · ${p.asset.symbol} ${p.allocationPct}%`).join('')}
+            </Caption>
             {portfolio.valuationIsStale ? <Banner><BannerText>Some holdings are valued with stale prices.</BannerText></Banner> : null}
           </>
         ) : (
@@ -82,6 +96,19 @@ export default function Dashboard() {
         <Card>
           <SectionTitle>Most traded</SectionTitle>
           {overview.mostTraded.slice(0, 3).map((asset) => <AssetRow key={asset.id} asset={asset} />)}
+        </Card>
+      ) : null}
+
+      {overview?.mostVolatile.length ? (
+        <Card>
+          <SectionTitle>Most volatile (7d realized)</SectionTitle>
+          <Caption>Annualized standard deviation of hourly returns. Describes the past week; not a forecast.</Caption>
+          {overview.mostVolatile.slice(0, 3).map((asset) => (
+            <Row key={asset.id}>
+              <Body bold>{asset.symbol}</Body>
+              <Body>{asset.volatility?.annualized7dPct ? `${asset.volatility.annualized7dPct}%` : '—'}</Body>
+            </Row>
+          ))}
         </Card>
       ) : null}
 

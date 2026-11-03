@@ -9,6 +9,7 @@ import type { Redis } from 'ioredis';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { Env } from '../../config/env';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { Metrics } from '../../infrastructure/metrics/metrics';
 import { REDIS } from '../../infrastructure/redis/redis.module';
 import {
   type AggregateType,
@@ -71,7 +72,26 @@ export class OutboxPublisher
     private readonly prisma: PrismaService,
     @Inject(REDIS) private readonly redis: Redis,
     @InjectPinoLogger(OutboxPublisher.name) private readonly logger: PinoLogger,
-  ) {}
+    private readonly metrics: Metrics,
+  ) {
+    // Backlog gauges are computed on scrape from the table itself, so they
+    // stay truthful even if this worker is the thing that's stuck.
+    metrics.gaugeOnScrape(
+      'outbox_pending_events',
+      'Unpublished, not dead-lettered outbox events',
+      async () => (await this.stats()).pending,
+    );
+    metrics.gaugeOnScrape(
+      'outbox_dead_lettered_events',
+      'Outbox events that exhausted retries',
+      async () => (await this.stats()).deadLettered,
+    );
+    metrics.gaugeOnScrape(
+      'outbox_oldest_pending_age_seconds',
+      'Age of the oldest pending outbox event (0 = none)',
+      async () => (await this.stats()).oldestPendingSeconds ?? 0,
+    );
+  }
 
   onApplicationBootstrap(): void {
     if (!this.config.get('OUTBOX_PUBLISHER_ENABLED', { infer: true })) return;
@@ -170,8 +190,10 @@ export class OutboxPublisher
             JSON.stringify(toDomainEvent(row)),
           );
           published.push(row.id);
+          this.metrics.outboxPublished.inc();
         } catch (error) {
           failed++;
+          this.metrics.outboxFailures.inc();
           const attempts = row.attempts + 1;
           const message =
             error instanceof Error

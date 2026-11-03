@@ -9,7 +9,7 @@ import { isUniqueViolation } from '../../infrastructure/database/transaction-ret
 import { AppError } from '../../shared/errors/app-error';
 import { AccountsService } from '../accounts/accounts.service';
 import type { Viewer } from '../identity/auth.service';
-import { QuoteStore, assessQuote } from '../market-data/quote-store';
+import { QuoteStore } from '../market-data/quote-store';
 import { minorToDollars } from './order-math';
 
 type Decimal = Prisma.Decimal;
@@ -44,6 +44,10 @@ export type PortfolioValuation = {
   realizedPnl: Decimal;
   dayChange: Decimal | null;
   isStale: boolean;
+  /** Play money deposited into the portfolio so far. */
+  netDeposits: Decimal;
+  /** (total value - net deposits) / net deposits, percent; null before any deposit. */
+  totalReturnPct: Decimal | null;
 };
 
 @Injectable()
@@ -135,7 +139,8 @@ export class PortfolioService {
       const held = position.quantity.gt(0);
       const price = quote ? new Decimal(quote.price) : null;
       const priceIsStale =
-        held && (!quote || assessQuote(quote, position.asset.category).isStale);
+        held &&
+        (!quote || this.quotes.assess(quote, position.asset.category).isStale);
       if (priceIsStale) isStale = true;
       const marketValue = price
         ? position.quantity.times(price).toDecimalPlaces(2)
@@ -176,6 +181,16 @@ export class PortfolioService {
 
     const sum = (pick: (p: PositionValuation) => Decimal | null) =>
       valued.reduce((total, p) => total.plus(pick(p) ?? ZERO), ZERO);
+    // Money in is only ever a simulated deposit (paper cash can't be
+    // transferred out), so net deposits = sum of those deposits.
+    const deposits = await this.prisma.transfer.aggregate({
+      where: {
+        toAccountId: portfolio.cashAccountId,
+        kind: 'SIMULATED_DEPOSIT',
+      },
+      _sum: { amount: true },
+    });
+    const netDeposits = minorToDollars(deposits._sum.amount ?? 0n);
     const cash = balance(portfolio.cashAccountId);
     const reservedCash = balance(portfolio.reservedAccountId);
     const marketValue = sum((p) => p.marketValue);
@@ -195,6 +210,16 @@ export class PortfolioService {
             .toDecimalPlaces(2)
         : null,
       isStale,
+      netDeposits,
+      totalReturnPct: netDeposits.gt(0)
+        ? cash
+            .plus(reservedCash)
+            .plus(marketValue)
+            .minus(netDeposits)
+            .div(netDeposits)
+            .times(100)
+            .toDecimalPlaces(2)
+        : null,
     };
   }
 

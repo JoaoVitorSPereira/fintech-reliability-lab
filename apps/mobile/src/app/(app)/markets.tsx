@@ -47,10 +47,10 @@ export default function Markets() {
   const header = (
     <Header>
       <SectionTitle>Markets</SectionTitle>
-      <SegmentedControl<MarketTab> options={['CRYPTO', 'STOCK']} value={tab} onChange={setTab} labels={{ CRYPTO: 'Crypto', STOCK: 'Stocks' }} />
+      <SegmentedControl<MarketTab> options={['CRYPTO', 'STOCK', 'ETF']} value={tab} onChange={setTab} labels={{ CRYPTO: 'Crypto', STOCK: 'Stocks', ETF: 'ETFs' }} />
       <Field label="Search" placeholder="Name or symbol" value={search} onChangeText={setSearch} autoCorrect={false} autoCapitalize="characters" />
       <SegmentedControl options={SORTS} value={sort} onChange={setSort} labels={SORT_LABELS} />
-      {tab === 'STOCK' ? <Caption>Stock prices are delayed. Without a Twelve Data API key only AAPL is available.</Caption> : null}
+      {tab !== 'CRYPTO' ? <Caption>Stock prices are delayed. Without a Twelve Data API key only AAPL is available.</Caption> : null}
     </Header>
   );
 

@@ -10,8 +10,9 @@ import { errorMessage } from '@/lib/errors';
 import { formatCompact, formatPercent, formatPrice } from '@/lib/money';
 import { TIMEFRAME_WINDOW_MS, type Timeframe, useUiStore } from '@/state/ui-store';
 
-const TIMEFRAMES = ['M5', 'M15', 'H1', 'H4', 'D1', 'W1'] as const;
-const TF_LABELS: Record<Timeframe, string> = { M5: '5m', M15: '15m', H1: '1h', H4: '4h', D1: '1D', W1: '1W' };
+// Only the timeframes the asset's provider offers are shown (supportedTimeframes).
+const TIMEFRAMES = ['M1', 'M5', 'M15', 'H1', 'H4', 'D1', 'W1', 'MN1'] as const;
+const TF_LABELS: Record<Timeframe, string> = { M1: '1m', M5: '5m', M15: '15m', H1: '1h', H4: '4h', D1: '1D', W1: '1W', MN1: '1M' };
 
 export default function AssetDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -111,6 +112,10 @@ export default function AssetDetail() {
         <Row><Caption>Market cap</Caption><Body>{formatCompact(quote?.marketCap)}</Body></Row>
         <Row><Caption>24h volume</Caption><Body>{formatCompact(quote?.volume24h)}</Body></Row>
         <Row><Caption>Rank</Caption><Body>{asset.marketCapRank ? `#${asset.marketCapRank}` : '—'}</Body></Row>
+        <Row><Caption>Volatility 24h (annualized)</Caption><Body>{asset.volatility?.annualized24hPct ? `${asset.volatility.annualized24hPct}%` : '—'}</Body></Row>
+        <Row><Caption>Volatility 7d (annualized)</Caption><Body>{asset.volatility?.annualized7dPct ? `${asset.volatility.annualized7dPct}%` : '—'}</Body></Row>
+        <Row><Caption>24h range</Caption><Body>{asset.volatility?.range24hPct ? `${asset.volatility.range24hPct}%` : '—'}</Body></Row>
+        <Caption>Realized volatility from hourly candles{asset.volatility ? ` (${asset.volatility.sampleHours} hours)` : ''}. Past behaviour, not a forecast.</Caption>
       </Card>
 
       <Row gap={12}>

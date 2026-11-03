@@ -1,3 +1,4 @@
+import { DecimalScalar } from '../../graphql/scalars/decimal.scalar';
 import {
   Field,
   ID,
@@ -57,13 +58,13 @@ export class MarketPriceUpdate {
   @Field(() => ID)
   assetId: string;
 
-  @Field()
+  @Field(() => DecimalScalar)
   price: string;
 
   @Field()
   currency: string;
 
-  @Field(() => String, { nullable: true })
+  @Field(() => DecimalScalar, { nullable: true })
   change24h: string | null;
 
   @Field()

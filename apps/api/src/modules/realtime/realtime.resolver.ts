@@ -1,5 +1,6 @@
 import { Args, ID, Int, Query, Resolver, Subscription } from '@nestjs/graphql';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { Metrics } from '../../infrastructure/metrics/metrics';
 import { AppError } from '../../shared/errors/app-error';
 import { isUuid } from '../../graphql/pagination';
 import {
@@ -56,6 +57,7 @@ export class RealtimeResolver {
     private readonly portfolios: PortfolioService,
     private readonly orders: OrdersService,
     private readonly prisma: PrismaService,
+    private readonly metrics: Metrics,
   ) {}
 
   @Subscription(() => AccountUpdate, {
@@ -176,6 +178,7 @@ export class RealtimeResolver {
     @Args('afterSequence', { type: () => Int }) afterSequence: number,
     @Args('first', { type: () => Int, defaultValue: 100 }) first: number,
   ): Promise<DomainEventRecord[]> {
+    this.metrics.eventRecoveries.inc({ stream: stream.type });
     if (stream.type === EventStreamType.ACCOUNT) {
       await this.accounts.getOwned(viewer, stream.id);
     } else {

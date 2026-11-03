@@ -1,3 +1,4 @@
+import { DecimalScalar } from '../../graphql/scalars/decimal.scalar';
 import {
   Field,
   ID,
@@ -57,7 +58,7 @@ export class CreateTransferInput {
   @Field(() => ID)
   toAccountId: string;
 
-  @Field({ description: 'Decimal string, e.g. "150.25".' })
+  @Field(() => DecimalScalar, { description: 'Decimal string, e.g. "150.25".' })
   amount: string;
 
   @Field({
@@ -75,7 +76,9 @@ export class SimulateDepositInput {
   @Field(() => ID)
   accountId: string;
 
-  @Field({ description: 'Decimal string, at most 50000.00.' })
+  @Field(() => DecimalScalar, {
+    description: 'Decimal string, at most 50000.00.',
+  })
   amount: string;
 
   @Field()

@@ -487,13 +487,18 @@ describe('Full user journey (spec section 14, steps 1-18)', () => {
       where: { aggregateId: checkingId, publishedAt: null },
     });
     expect(pending).toBeGreaterThan(0);
-    await publisher.drain(); // "restart"
-    await until(() => updates.length > 0);
-    expect(
-      await prisma.outboxEvent.count({
+    // "Restart": like the real worker loop, keep publishing until caught up.
+    // Other suites run in parallel and leave their own backlog in front of
+    // ours (oldest first), so one fixed-size drain isn't enough.
+    const stillPending = () =>
+      prisma.outboxEvent.count({
         where: { aggregateId: checkingId, publishedAt: null },
-      }),
-    ).toBe(0);
+      });
+    const deadline = Date.now() + 15_000;
+    while ((await stillPending()) > 0 && Date.now() < deadline)
+      await publisher.drain();
+    await until(() => updates.length > 0);
+    expect(await stillPending()).toBe(0);
   });
 
   it('18. verifies ledger integrity', async () => {

@@ -17,6 +17,7 @@ import {
   isUniqueViolation,
   withTransactionRetry,
 } from '../../infrastructure/database/transaction-retry';
+import { Metrics } from '../../infrastructure/metrics/metrics';
 import { AppError } from '../../shared/errors/app-error';
 import { uuidv7 } from '../../shared/uuid';
 import type { Viewer } from '../identity/auth.service';
@@ -67,6 +68,7 @@ export class OrdersService {
     private readonly marketData: MarketDataService,
     private readonly quotes: QuoteStore,
     private readonly outbox: OutboxService,
+    private readonly metrics: Metrics,
     @InjectPinoLogger(OrdersService.name) private readonly logger: PinoLogger,
   ) {}
 
@@ -213,6 +215,8 @@ export class OrdersService {
       const price = executablePrice(
         order.asset.category,
         quotes.get(order.assetId) ?? null,
+        Date.now(),
+        this.quotes.freshness.tradeMaxPriceAgeMs,
       );
       if (
         !price.ok ||
@@ -278,7 +282,12 @@ export class OrdersService {
   ): Promise<SimulatedOrder> {
     const quote =
       (await this.quotes.readMany([asset.id])).get(asset.id) ?? null;
-    const price = executablePrice(asset.category, quote);
+    const price = executablePrice(
+      asset.category,
+      quote,
+      Date.now(),
+      this.quotes.freshness.tradeMaxPriceAgeMs,
+    );
 
     if (order.type === 'MARKET') {
       if (!price.ok) return this.reject(tx, portfolio, order, price.reason);
@@ -488,6 +497,10 @@ export class OrdersService {
     order: SimulatedOrder,
     reason: string,
   ): Promise<SimulatedOrder> {
+    this.metrics.financialFailures.inc({
+      operation: 'order',
+      code: 'REJECTED',
+    });
     const rejected = await tx.simulatedOrder.update({
       where: { id: order.id },
       data: { status: 'REJECTED', rejectReason: reason },
