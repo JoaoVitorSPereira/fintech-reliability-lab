@@ -12,7 +12,7 @@ Prices must come from real, free, officially supported APIs, never be fabricated
 | Binance market data (`data-api.binance.vision`, `data-stream.binance.vision`) | Live prices (WebSocket miniTicker), candles | none | 300 req/min | Market-data-only endpoints. Prices are in **USDT** |
 | Twelve Data | Stock/ETF quotes and candles | API key (free) | 8 req/min | Without a key, the public `demo` key covers AAPL only |
 
-Not used: Yahoo Finance (no official API), CoinCap (API moved behind keys), Alpha Vantage (25 requests/day is too low for this design).
+Not used: Yahoo Finance (no official public API), CoinCap (v2 endpoint unreachable, v3 returns 401 without a key, checked 2026-11-03), Alpha Vantage (works, but its free tier has a very small daily quota; check its current limits before using it).
 
 ## Decision
 - **Adapters + registry.** One adapter per provider with pure normalizers (tested against recorded real responses). `Binance` and `TwelveData` implement a shared `CandleProvider` interface. A registry picks the candle source per asset: Binance pair → Binance; stock → Twelve Data; otherwise **no charts** (e.g. USDT). Timeframes are never invented.
