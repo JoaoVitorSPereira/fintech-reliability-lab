@@ -57,7 +57,6 @@
     "android": "expo start --android",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "lint": "expo lint",
     "test": "jest",
     "codegen": "graphql-codegen --config codegen.ts",
     "codegen:check": "graphql-codegen --config codegen.ts && git diff --exit-code -- src/graphql/generated"
