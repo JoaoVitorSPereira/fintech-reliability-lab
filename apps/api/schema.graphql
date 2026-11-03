@@ -10,6 +10,46 @@ type Account {
   id: ID!
 }
 
+type Asset {
+  category: AssetCategory!
+  id: ID!
+  logoUrl: String
+  marketCapRank: Int
+  name: String!
+
+  """Null until the first ingestion."""
+  quote: MarketPrice
+  quoteCurrency: String!
+
+  """
+  Hourly closes for the last 24h, oldest first. Empty if not yet ingested.
+  """
+  sparkline: [String!]!
+
+  """Timeframes a provider actually offers for this asset."""
+  supportedTimeframes: [ChartTimeframe!]!
+  symbol: String!
+}
+
+enum AssetCategory {
+  CRYPTO
+  ETF
+  STOCK
+}
+
+type AssetConnection {
+  nodes: [Asset!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+enum AssetSort {
+  CHANGE_24H
+  MARKET_CAP
+  PRICE
+  VOLUME
+}
+
 type AuthPayload {
   """Short-lived JWT for the Authorization header."""
   accessToken: String!
@@ -19,6 +59,47 @@ type AuthPayload {
   refreshToken: String!
   refreshTokenExpiresAt: DateTime!
   user: User!
+}
+
+type Candle {
+  close: String!
+  high: String!
+
+  """False for the current, still-forming interval."""
+  isClosed: Boolean!
+  low: String!
+  open: String!
+
+  """Start of the interval, UTC."""
+  openTime: DateTime!
+  volume: String!
+}
+
+type CandleSeries {
+  assetId: ID!
+  candles: [Candle!]!
+
+  """
+  False when intervals are missing. Missing intervals are never invented.
+  """
+  isComplete: Boolean!
+
+  """True when the provider was unreachable and stored candles are served."""
+  isStale: Boolean!
+  note: String
+  provider: String
+  timeframe: ChartTimeframe!
+}
+
+enum ChartTimeframe {
+  D1
+  H1
+  H4
+  M1
+  M5
+  M15
+  MN1
+  W1
 }
 
 input CreateTransferInput {
@@ -32,6 +113,16 @@ input CreateTransferInput {
   """
   idempotencyKey: String!
   toAccountId: ID!
+}
+
+"""
+LIVE: streamed from the exchange within the last 30s. DELAYED: provider data we cannot verify as real-time (all stocks). CACHED: a polled snapshot, still within its freshness window. STALE: older than its freshness window; never present as current.
+"""
+enum DataQuality {
+  CACHED
+  DELAYED
+  LIVE
+  STALE
 }
 
 """
@@ -60,6 +151,60 @@ input LoginInput {
   deviceName: String
   email: String!
   password: String!
+}
+
+type MarketOverview {
+  asOf: DateTime
+  btcDominancePct: String
+
+  """
+  SPY and QQQ ETFs as stand-ins for the S&P 500 and Nasdaq-100. Not the indices themselves.
+  """
+  indexProxies: [Asset!]!
+  marketCapChange24hPct: String
+
+  """By 24h volume."""
+  mostTraded: [Asset!]!
+  providers: [ProviderStatus!]!
+
+  """From fresh quotes only."""
+  topGainers: [Asset!]!
+  topLosers: [Asset!]!
+
+  """Total crypto market cap (CoinGecko), USD."""
+  totalMarketCapUsd: String
+}
+
+"""Decimal strings throughout. Check isStale before showing as current."""
+type MarketPrice {
+  assetId: ID!
+
+  """24h change in percent."""
+  change24h: String
+
+  """USD, or USDT for prices streamed from Binance."""
+  currency: String!
+  dataQuality: DataQuality!
+
+  """When this server received it."""
+  fetchedAt: DateTime!
+  isStale: Boolean!
+  marketCap: String
+  marketStatus: MarketStatus!
+  price: String!
+  provider: String!
+
+  """When the provider says this price was true."""
+  sourceTimestamp: DateTime!
+
+  """24h volume in the quote currency."""
+  volume24h: String
+}
+
+enum MarketStatus {
+  ALWAYS_OPEN
+  CLOSED
+  OPEN
 }
 
 """
@@ -102,10 +247,27 @@ type PageInfo {
   hasNextPage: Boolean!
 }
 
+type ProviderStatus {
+  consecutiveFailures: Int!
+  lastError: String
+  lastFailureAt: DateTime
+  lastLatencyMs: Float
+  lastSuccessAt: DateTime
+  name: String!
+  note: String
+  rateLimitedUntil: DateTime
+  status: String!
+}
+
 type Query {
   account(id: ID!): Account!
   accounts: [Account!]!
+  asset(id: ID!): Asset!
+  assetCandles(assetId: ID!, from: DateTime!, timeframe: ChartTimeframe!, to: DateTime!): CandleSeries!
+  assets(after: String, category: AssetCategory, first: Int!, search: String, sort: AssetSort! = MARKET_CAP): AssetConnection!
   health: Health!
+  marketOverview: MarketOverview!
+  marketProviders: [ProviderStatus!]!
   me: User!
 
   """Your active sessions."""

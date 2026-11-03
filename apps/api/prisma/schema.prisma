@@ -189,3 +189,70 @@ model Transfer {
   @@index([toAccountId])
   @@map("transfers")
 }
+
+// ---------------------------------------------------------------------------
+// Market data (Milestones 5-6). Prices are NUMERIC and travel as strings:
+// provider precision is kept, nothing is ever a float in our code.
+// Current quotes live in Redis (short-lived); candles are persisted here.
+// ---------------------------------------------------------------------------
+
+enum AssetCategory {
+  CRYPTO
+  STOCK
+  /// Exchange-traded funds. SPY/QQQ stand in for the S&P 500 / Nasdaq-100 indices.
+  ETF
+
+  @@map("asset_category")
+}
+
+model Asset {
+  id               String        @id @default(uuid(7)) @db.Uuid
+  category         AssetCategory
+  symbol           String
+  name             String
+  /// Currency prices are quoted in (USD; Binance pairs quote in USDT, see ADR 0007).
+  quoteCurrency    String        @map("quote_currency")
+  logoUrl          String?       @map("logo_url")
+  marketCapRank    Int?          @map("market_cap_rank")
+  /// Provider identifiers. Null = that provider doesn't cover this asset.
+  coingeckoId      String?       @unique @map("coingecko_id")
+  binanceSymbol    String?       @unique @map("binance_symbol")
+  twelveDataSymbol String?       @unique @map("twelve_data_symbol")
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  candles          Candle[]
+
+  @@unique([category, symbol])
+  @@map("assets")
+}
+
+enum ChartTimeframe {
+  M1
+  M5
+  M15
+  H1
+  H4
+  D1
+  W1
+  MN1
+
+  @@map("chart_timeframe")
+}
+
+/// OHLCV bar as reported by the provider. Times are UTC. Gaps are kept as gaps.
+model Candle {
+  assetId   String         @map("asset_id") @db.Uuid
+  asset     Asset          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  timeframe ChartTimeframe
+  openTime  DateTime       @map("open_time") @db.Timestamptz(3)
+  open      Decimal        @db.Decimal(38, 12)
+  high      Decimal        @db.Decimal(38, 12)
+  low       Decimal        @db.Decimal(38, 12)
+  close     Decimal        @db.Decimal(38, 12)
+  volume    Decimal        @db.Decimal(38, 12)
+  provider  String
+  fetchedAt DateTime       @map("fetched_at") @db.Timestamptz(3)
+
+  @@id([assetId, timeframe, openTime])
+  @@map("candles")
+}
