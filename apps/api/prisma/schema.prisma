@@ -23,6 +23,7 @@ model User {
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
   sessions     Session[]
   accounts     Account[]
+  transfers    Transfer[]
 
   @@map("users")
 }
@@ -101,6 +102,8 @@ model Account {
   balance    BigInt          @default(0)
   createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   entries    LedgerEntry[]
+  outgoing   Transfer[]      @relation("TransferFrom")
+  incoming   Transfer[]      @relation("TransferTo")
 
   /// Target of the composite FK that stops an entry's currency differing from its account's.
   @@unique([id, currency])
@@ -110,6 +113,7 @@ model Account {
 
 enum LedgerTransactionKind {
   DEPOSIT
+  TRANSFER
 
   @@map("ledger_transaction_kind")
 }
@@ -121,6 +125,7 @@ model LedgerTransaction {
   description String
   createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   entries     LedgerEntry[]
+  transfer    Transfer?
 
   @@map("ledger_transactions")
 }
@@ -140,4 +145,47 @@ model LedgerEntry {
   @@index([accountId, id])
   @@index([transactionId])
   @@map("ledger_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Transfers (Milestone 4). The business record of a money movement and its
+// idempotency claim. The money itself is in the ledger transaction it points to.
+// ---------------------------------------------------------------------------
+
+enum TransferKind {
+  /// Between two customer accounts.
+  TRANSFER
+  /// Simulated money in from outside (no real payment rail).
+  SIMULATED_DEPOSIT
+
+  @@map("transfer_kind")
+}
+
+/// Immutable audit record. One row per successful request.
+model Transfer {
+  id                  String            @id @default(uuid(7)) @db.Uuid
+  /// Who asked for it. Idempotency keys are scoped per user.
+  userId              String            @map("user_id") @db.Uuid
+  user                User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  kind                TransferKind
+  idempotencyKey      String            @map("idempotency_key")
+  /// SHA-256 of the canonical request. Same key + different request = error.
+  requestHash         String            @map("request_hash")
+  fromAccountId       String            @map("from_account_id") @db.Uuid
+  fromAccount         Account           @relation("TransferFrom", fields: [fromAccountId], references: [id], onDelete: Restrict)
+  toAccountId         String            @map("to_account_id") @db.Uuid
+  toAccount           Account           @relation("TransferTo", fields: [toAccountId], references: [id], onDelete: Restrict)
+  amount              BigInt
+  currency            String            @db.Char(3)
+  description         String
+  ledgerTransactionId String            @unique @map("ledger_transaction_id") @db.Uuid
+  ledgerTransaction   LedgerTransaction @relation(fields: [ledgerTransactionId], references: [id], onDelete: Restrict)
+  /// Request id of the HTTP call that created it, for tracing across logs.
+  correlationId       String?           @map("correlation_id")
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([userId, idempotencyKey])
+  @@index([fromAccountId])
+  @@index([toAccountId])
+  @@map("transfers")
 }

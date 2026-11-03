@@ -27,6 +27,8 @@ export class LedgerService {
   async post(
     tx: Tx,
     input: {
+      /** Pass one when another row must reference the transaction first. */
+      transactionId?: string;
       kind: LedgerTransactionKind;
       description: string;
       postings: Posting[];
@@ -34,7 +36,11 @@ export class LedgerService {
   ): Promise<{ transactionId: string }> {
     assertBalanced(input.postings);
     const transaction = await tx.ledgerTransaction.create({
-      data: { kind: input.kind, description: input.description },
+      data: {
+        id: input.transactionId,
+        kind: input.kind,
+        description: input.description,
+      },
       select: { id: true },
     });
     await tx.ledgerEntry.createMany({

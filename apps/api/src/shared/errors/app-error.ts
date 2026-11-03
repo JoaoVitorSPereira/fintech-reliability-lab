@@ -8,7 +8,9 @@ export type AppErrorCode =
   | 'INVALID_CREDENTIALS'
   | 'EMAIL_TAKEN'
   | 'TOO_MANY_ATTEMPTS'
-  | 'NOT_FOUND';
+  | 'NOT_FOUND'
+  | 'INSUFFICIENT_FUNDS'
+  | 'IDEMPOTENCY_KEY_REUSED';
 
 export class AppError extends Error {
   constructor(

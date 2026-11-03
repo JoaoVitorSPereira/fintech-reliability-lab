@@ -14,6 +14,7 @@ import { RedisModule } from './infrastructure/redis/redis.module';
 import { AccountsModule } from './modules/accounts/accounts.module';
 import { IdentityModule } from './modules/identity/identity.module';
 import { LedgerModule } from './modules/ledger/ledger.module';
+import { TransfersModule } from './modules/transfers/transfers.module';
 import { AppErrorFilter } from './shared/errors/app-error.filter';
 
 @Module({
@@ -34,6 +35,7 @@ import { AppErrorFilter } from './shared/errors/app-error.filter';
     IdentityModule,
     LedgerModule,
     AccountsModule,
+    TransfersModule,
   ],
   providers: [
     GraphqlLoggingPlugin,

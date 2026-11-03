@@ -15,6 +15,8 @@ const HTTP_STATUS: Record<AppErrorCode, number> = {
   NOT_FOUND: 404,
   EMAIL_TAKEN: 409,
   TOO_MANY_ATTEMPTS: 429,
+  INSUFFICIENT_FUNDS: 422,
+  IDEMPOTENCY_KEY_REUSED: 422,
 };
 
 // AppErrors are expected outcomes (wrong password, expired session), not

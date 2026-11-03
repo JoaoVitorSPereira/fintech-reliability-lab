@@ -21,6 +21,19 @@ type AuthPayload {
   user: User!
 }
 
+input CreateTransferInput {
+  """Decimal string, e.g. "150.25"."""
+  amount: String!
+  description: String
+  fromAccountId: ID!
+
+  """
+  Generate once per transfer the user intends (e.g. a UUID) and reuse it on every retry.
+  """
+  idempotencyKey: String!
+  toAccountId: ID!
+}
+
 """
 A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
 """
@@ -60,6 +73,10 @@ type Money {
 }
 
 type Mutation {
+  """
+  Move money between accounts. Safe to retry with the same idempotencyKey.
+  """
+  createTransfer(input: CreateTransferInput!): TransferResult!
   login(input: LoginInput!): AuthPayload!
 
   """Sign out this device."""
@@ -73,6 +90,11 @@ type Mutation {
 
   """Sign out one of your devices."""
   revokeSession(id: ID!): Boolean!
+
+  """
+  Paper money for the demo. No real funds move. Safe to retry with the same idempotencyKey.
+  """
+  simulateDeposit(input: SimulateDepositInput!): TransferResult!
 }
 
 type PageInfo {
@@ -114,6 +136,14 @@ type Session {
   lastRefreshedAt: DateTime
 }
 
+input SimulateDepositInput {
+  accountId: ID!
+
+  """Decimal string, at most 50000.00."""
+  amount: String!
+  idempotencyKey: String!
+}
+
 """One line of an account's statement (a ledger entry)."""
 type Transaction {
   """Positive = money in, negative = money out."""
@@ -134,6 +164,32 @@ type TransactionConnection {
 
 enum TransactionKind {
   DEPOSIT
+  TRANSFER
+}
+
+type Transfer {
+  amount: Money!
+  createdAt: DateTime!
+  description: String!
+  fromAccountId: ID!
+  id: ID!
+
+  """SIMULATED_DEPOSIT means no real money moved: there is no payment rail."""
+  kind: TransferKind!
+  toAccountId: ID!
+}
+
+enum TransferKind {
+  SIMULATED_DEPOSIT
+  TRANSFER
+}
+
+type TransferResult {
+  """
+  True when this idempotency key was already processed: nothing moved this time; this is the original result.
+  """
+  replayed: Boolean!
+  transfer: Transfer!
 }
 
 type User {
