@@ -4,6 +4,8 @@ import type {
   Prisma,
 } from '../../generated/prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import type { AccountBalanceChangedV1 } from '../events/domain-event';
+import { OutboxService } from '../events/outbox.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -22,7 +24,10 @@ export type IntegrityReport = {
 // bug in this file can't corrupt the ledger, only fail loudly.
 @Injectable()
 export class LedgerService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly outbox: OutboxService,
+  ) {}
 
   async post(
     tx: Tx,
@@ -32,6 +37,7 @@ export class LedgerService {
       kind: LedgerTransactionKind;
       description: string;
       postings: Posting[];
+      correlationId?: string | null;
     },
   ): Promise<{ transactionId: string }> {
     assertBalanced(input.postings);
@@ -43,12 +49,60 @@ export class LedgerService {
       },
       select: { id: true },
     });
-    await tx.ledgerEntry.createMany({
+    const entries = await tx.ledgerEntry.createManyAndReturn({
       data: input.postings.map((posting) => ({
         transactionId: transaction.id,
         ...posting,
       })),
+      select: { id: true, accountId: true, amount: true, createdAt: true },
     });
+
+    // One event per customer account, in this same transaction. The version
+    // bump is the event's sequence; the rows are already locked by the
+    // balance trigger above, so this adds no new lock ordering.
+    const touched = [...new Set(entries.map((entry) => entry.accountId))];
+    const accounts = await tx.$queryRaw<
+      {
+        id: string;
+        user_id: string;
+        version: number;
+        balance: bigint;
+        currency: string;
+      }[]
+    >`
+      UPDATE accounts SET version = version + 1
+      WHERE id = ANY(${touched}::uuid[]) AND kind = 'CUSTOMER'
+      RETURNING id, user_id, version, balance, currency`;
+    await this.outbox.append(
+      tx,
+      accounts.map((account) => {
+        const payload: AccountBalanceChangedV1 = {
+          accountId: account.id,
+          userId: account.user_id,
+          currency: account.currency,
+          balanceMinor: account.balance.toString(),
+          ledgerTransactionId: transaction.id,
+          kind: input.kind,
+          description: input.description,
+          entries: entries
+            .filter((entry) => entry.accountId === account.id)
+            .map((entry) => ({
+              id: entry.id,
+              amountMinor: entry.amount.toString(),
+              createdAt: entry.createdAt.toISOString(),
+            })),
+        };
+        return {
+          aggregateType: 'account' as const,
+          aggregateId: account.id,
+          sequence: account.version,
+          type: 'AccountBalanceChanged',
+          version: 1,
+          payload,
+          correlationId: input.correlationId,
+        };
+      }),
+    );
     return { transactionId: transaction.id };
   }
 

@@ -237,6 +237,7 @@ export class TransfersService {
       transactionId: ledgerTransactionId,
       kind: command.kind === 'TRANSFER' ? 'TRANSFER' : 'DEPOSIT',
       description: command.description,
+      correlationId: command.correlationId,
       postings: [
         { accountId: command.fromAccountId, currency, amount: -amount },
         { accountId: command.toAccountId, currency, amount },

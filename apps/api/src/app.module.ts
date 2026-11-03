@@ -12,11 +12,14 @@ import { DatabaseModule } from './infrastructure/database/prisma.service';
 import { loggerConfig } from './infrastructure/logging/logger.config';
 import { RedisModule } from './infrastructure/redis/redis.module';
 import { AccountsModule } from './modules/accounts/accounts.module';
+import { EventsModule } from './modules/events/events.module';
+import { AuthService } from './modules/identity/auth.service';
 import { IdentityModule } from './modules/identity/identity.module';
 import { LedgerModule } from './modules/ledger/ledger.module';
 import { TransfersModule } from './modules/transfers/transfers.module';
 import { MarketDataModule } from './modules/market-data/market-data.module';
 import { TradingModule } from './modules/trading/trading.module';
+import { RealtimeModule } from './modules/realtime/realtime.module';
 import { AppErrorFilter } from './shared/errors/app-error.filter';
 
 @Module({
@@ -28,11 +31,13 @@ import { AppErrorFilter } from './shared/errors/app-error.filter';
     }),
     GraphQLModule.forRootAsync<ApolloDriverConfig>({
       driver: ApolloDriver,
-      inject: [ConfigService],
+      imports: [IdentityModule],
+      inject: [ConfigService, AuthService],
       useFactory: graphqlConfig,
     }),
     DatabaseModule,
     RedisModule,
+    EventsModule,
     HealthModule,
     IdentityModule,
     LedgerModule,
@@ -40,6 +45,7 @@ import { AppErrorFilter } from './shared/errors/app-error.filter';
     TransfersModule,
     MarketDataModule,
     TradingModule,
+    RealtimeModule,
   ],
   providers: [
     GraphqlLoggingPlugin,

@@ -27,5 +27,6 @@ import { LoginThrottle } from './login-throttle';
     IdentityResolver,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],
+  exports: [AuthService],
 })
 export class IdentityModule {}

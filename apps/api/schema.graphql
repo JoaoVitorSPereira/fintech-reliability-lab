@@ -19,6 +19,20 @@ enum AccountPurpose {
   PORTFOLIO_RESERVED
 }
 
+"""
+A balance change. `account.balance` is re-read from the database, not computed from the event.
+"""
+type AccountUpdate {
+  account: Account!
+  eventId: ID!
+
+  """
+  Gapless per account. A jump means events were missed: call missedEvents or refetch.
+  """
+  sequence: Int!
+  transaction: Transaction!
+}
+
 type Asset {
   category: AssetCategory!
   id: ID!
@@ -144,6 +158,28 @@ enum DependencyStatus {
   UP
 }
 
+"""A stored event, for catching up after a disconnect."""
+type DomainEventRecord {
+  id: ID!
+  occurredAt: DateTime!
+
+  """The versioned event payload as JSON."""
+  payloadJson: String!
+  sequence: Int!
+  type: String!
+  version: Int!
+}
+
+input EventStreamInput {
+  id: ID!
+  type: EventStreamType!
+}
+
+enum EventStreamType {
+  ACCOUNT
+  PORTFOLIO
+}
+
 type Health {
   checkedAt: DateTime!
   database: DependencyStatus!
@@ -208,6 +244,18 @@ type MarketPrice {
 
   """24h volume in the quote currency."""
   volume24h: String
+}
+
+"""
+Streamed from Binance. Throttled per asset; not every tick is delivered.
+"""
+type MarketPriceUpdate {
+  assetId: ID!
+  change24h: String
+  currency: String!
+  dataQuality: DataQuality!
+  price: String!
+  sourceTimestamp: DateTime!
 }
 
 enum MarketStatus {
@@ -370,6 +418,11 @@ type Query {
   marketProviders: [ProviderStatus!]!
   me: User!
 
+  """
+  Events after a sequence number, from the durable outbox. Call after reconnecting to fill gaps.
+  """
+  missedEvents(afterSequence: Int!, first: Int! = 100, stream: EventStreamInput!): [DomainEventRecord!]!
+
   """Null until createPortfolio is called."""
   portfolio: Portfolio
 
@@ -457,6 +510,24 @@ type SimulatedOrderResult {
 
   """True when this idempotency key was already processed."""
   replayed: Boolean!
+}
+
+type SimulatedOrderUpdate {
+  eventId: ID!
+  order: SimulatedOrder!
+
+  """Gapless per portfolio."""
+  sequence: Int!
+}
+
+type Subscription {
+  accountUpdated(accountId: ID!): AccountUpdate!
+
+  """
+  Only the assets you ask for (max 50). minIntervalMs throttles per asset: ~1000 for a detail screen, 5000+ for lists.
+  """
+  marketPriceUpdated(assetIds: [ID!]!, minIntervalMs: Int! = 1000): MarketPriceUpdate!
+  simulatedOrderUpdated(portfolioId: ID!): SimulatedOrderUpdate!
 }
 
 """A SIMULATED execution, never a real exchange fill."""

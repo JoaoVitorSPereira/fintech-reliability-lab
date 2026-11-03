@@ -3,10 +3,13 @@ import type { ConfigService } from '@nestjs/config';
 import { maxDepthRule } from '@escape.tech/graphql-armor-max-depth';
 import { join } from 'node:path';
 import type { Env } from '../config/env';
+import type { AuthService } from '../modules/identity/auth.service';
 import { formatGraphqlError } from './format-error';
+import { graphqlContext, subscriptionConfig } from './subscriptions';
 
 export function graphqlConfig(
   config: ConfigService<Env, true>,
+  auth: AuthService,
 ): Omit<ApolloDriverConfig, 'driver'> {
   const isProduction = config.get('NODE_ENV', { infer: true }) === 'production';
 
@@ -25,7 +28,9 @@ export function graphqlConfig(
       }),
     ],
     formatError: formatGraphqlError,
-    // The auth guard reads the Authorization header from here.
-    context: ({ req }: { req: unknown }) => ({ req }),
+    // The auth guard reads the Authorization header from here (HTTP), or
+    // from connectionParams for WebSocket subscriptions.
+    context: graphqlContext,
+    subscriptions: subscriptionConfig(auth),
   };
 }

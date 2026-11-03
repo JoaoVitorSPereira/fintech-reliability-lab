@@ -21,6 +21,8 @@ import { AppError } from '../../shared/errors/app-error';
 import { uuidv7 } from '../../shared/uuid';
 import type { Viewer } from '../identity/auth.service';
 import { parseInput } from '../identity/inputs';
+import type { SimulatedOrderUpdatedV1 } from '../events/domain-event';
+import { OutboxService } from '../events/outbox.service';
 import { LedgerService } from '../ledger/ledger.service';
 import { MarketDataService } from '../market-data/market-data.service';
 import { QuoteStore } from '../market-data/quote-store';
@@ -58,19 +60,15 @@ export type OrderChangeHook = (
 @Injectable()
 export class OrdersService {
   private marketAccountId: string | undefined;
-  private readonly hooks: OrderChangeHook[] = [];
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
     private readonly marketData: MarketDataService,
     private readonly quotes: QuoteStore,
+    private readonly outbox: OutboxService,
     @InjectPinoLogger(OrdersService.name) private readonly logger: PinoLogger,
   ) {}
-
-  onOrderChange(hook: OrderChangeHook): void {
-    this.hooks.push(hook);
-  }
 
   async place(
     viewer: Viewer,
@@ -508,7 +506,28 @@ export class OrdersService {
       data: { version: { increment: 1 } },
       select: { version: true },
     });
-    for (const hook of this.hooks) await hook(tx, order, portfolio, version);
+    const payload: SimulatedOrderUpdatedV1 = {
+      orderId: order.id,
+      portfolioId: portfolio.id,
+      userId: portfolio.userId,
+      assetId: order.assetId,
+      status: order.status,
+      side: order.side,
+      type: order.type,
+      quantity: order.quantity.toFixed(),
+    };
+    // Same transaction as the order change: the event exists iff it committed.
+    await this.outbox.append(tx, [
+      {
+        aggregateType: 'portfolio',
+        aggregateId: portfolio.id,
+        sequence: version,
+        type: 'SimulatedOrderUpdated',
+        version: 1,
+        payload,
+        correlationId: order.correlationId,
+      },
+    ]);
   }
 
   // Every order operation on a portfolio is serialized by this row lock.

@@ -82,13 +82,23 @@ describe('Health (e2e)', () => {
 describe('Health (e2e) with Redis down', () => {
   let app: INestApplication<App>;
 
+  // Every command fails, like a client whose server is unreachable.
+  function downRedis(): Record<string, unknown> {
+    const refused = () => Promise.reject(new Error('connection refused'));
+    return {
+      ping: refused,
+      subscribe: refused,
+      publish: refused,
+      on: () => undefined,
+      quit: () => Promise.resolve('OK'),
+      duplicate: () => downRedis(),
+    };
+  }
+
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(REDIS)
-      .useValue({
-        ping: () => Promise.reject(new Error('connection refused')),
-        quit: () => Promise.resolve('OK'),
-      })
+      .useValue(downRedis())
       .compile();
     app = moduleRef.createNestApplication();
     await app.init();
