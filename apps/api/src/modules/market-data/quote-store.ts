@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import type { AssetCategory } from '../../generated/prisma/enums';
+import { ConfigService } from '@nestjs/config';
+import type { Env } from '../../config/env';
 import { REDIS } from '../../infrastructure/redis/redis.module';
 import type { StoredQuote } from './market-data.types';
 
@@ -10,10 +12,22 @@ const quoteKey = (assetId: string) => `md:quote:${assetId}`;
 export type DataQuality = 'LIVE' | 'DELAYED' | 'CACHED' | 'STALE';
 export type MarketStatus = 'OPEN' | 'CLOSED' | 'ALWAYS_OPEN';
 
-export const LIVE_MAX_AGE_MS = 30_000;
-export const CRYPTO_STALE_AFTER_MS = 10 * 60_000;
-/** Stocks refresh every 30 min; two missed refreshes = stale. */
-export const STOCK_STALE_AFTER_MS = 2 * 60 * 60_000;
+/** Freshness windows. Defaults below; production values come from env (see Env). */
+export type FreshnessPolicy = {
+  liveMaxAgeMs: number;
+  cryptoStaleAfterMs: number;
+  /** Stocks refresh every 30 min by default; two missed refreshes = stale. */
+  stockStaleAfterMs: number;
+  /** A simulated crypto fill needs a price at most this old. */
+  tradeMaxPriceAgeMs: number;
+};
+
+export const DEFAULT_FRESHNESS: FreshnessPolicy = {
+  liveMaxAgeMs: 30_000,
+  cryptoStaleAfterMs: 10 * 60_000,
+  stockStaleAfterMs: 2 * 60 * 60_000,
+  tradeMaxPriceAgeMs: 60_000,
+};
 
 // Freshness is computed when the quote is READ, from its timestamps. A flag
 // stored at write time would say "fresh" forever if ingestion stopped.
@@ -21,20 +35,21 @@ export function assessQuote(
   quote: StoredQuote,
   category: AssetCategory,
   now: number = Date.now(),
+  policy: FreshnessPolicy = DEFAULT_FRESHNESS,
 ): { isStale: boolean; dataQuality: DataQuality; marketStatus: MarketStatus } {
   if (category === 'CRYPTO') {
     const age = now - Date.parse(quote.sourceTimestamp);
-    const isStale = age > CRYPTO_STALE_AFTER_MS;
+    const isStale = age > policy.cryptoStaleAfterMs;
     const dataQuality: DataQuality = isStale
       ? 'STALE'
-      : quote.provider === 'binance-stream' && age <= LIVE_MAX_AGE_MS
+      : quote.provider === 'binance-stream' && age <= policy.liveMaxAgeMs
         ? 'LIVE'
         : 'CACHED';
     return { isStale, dataQuality, marketStatus: 'ALWAYS_OPEN' };
   }
   // A closed market's last price is current, so stocks go stale when WE stop
   // refreshing (fetchedAt), not when the exchange stops trading.
-  const isStale = now - Date.parse(quote.fetchedAt) > STOCK_STALE_AFTER_MS;
+  const isStale = now - Date.parse(quote.fetchedAt) > policy.stockStaleAfterMs;
   return {
     isStale,
     dataQuality: isStale ? 'STALE' : 'DELAYED',
@@ -46,7 +61,35 @@ export function assessQuote(
 // (CoinGecko: market cap; Binance stream: price) without overwriting each other.
 @Injectable()
 export class QuoteStore {
-  constructor(@Inject(REDIS) private readonly redis: Redis) {}
+  readonly freshness: FreshnessPolicy;
+
+  constructor(
+    @Inject(REDIS) private readonly redis: Redis,
+    config: ConfigService<Env, true>,
+  ) {
+    const seconds = (
+      key:
+        | 'QUOTE_LIVE_MAX_AGE_SECONDS'
+        | 'CRYPTO_QUOTE_STALE_AFTER_SECONDS'
+        | 'STOCK_QUOTE_STALE_AFTER_SECONDS'
+        | 'TRADE_MAX_PRICE_AGE_SECONDS',
+    ) => config.get(key, { infer: true }) * 1000;
+    this.freshness = {
+      liveMaxAgeMs: seconds('QUOTE_LIVE_MAX_AGE_SECONDS'),
+      cryptoStaleAfterMs: seconds('CRYPTO_QUOTE_STALE_AFTER_SECONDS'),
+      stockStaleAfterMs: seconds('STOCK_QUOTE_STALE_AFTER_SECONDS'),
+      tradeMaxPriceAgeMs: seconds('TRADE_MAX_PRICE_AGE_SECONDS'),
+    };
+  }
+
+  /** assessQuote with this deployment's configured windows. */
+  assess(
+    quote: StoredQuote,
+    category: AssetCategory,
+    now: number = Date.now(),
+  ) {
+    return assessQuote(quote, category, now, this.freshness);
+  }
 
   async write(
     quotes: (Partial<StoredQuote> & { assetId: string })[],

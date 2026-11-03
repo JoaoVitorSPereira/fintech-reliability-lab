@@ -20,10 +20,18 @@ import {
 import { BinanceAdapter } from './providers/binance';
 import { CoinGeckoAdapter } from './providers/coingecko';
 import { TwelveDataAdapter } from './providers/twelve-data';
-import { QuoteStore, assessQuote } from './quote-store';
+import { QuoteStore } from './quote-store';
 
 export const MAX_CANDLES = 1000;
 export const OVERVIEW_KEY = 'md:overview';
+
+export type Volatility = {
+  assetId: string;
+  annualized24hPct: string | null;
+  annualized7dPct: string | null;
+  range24hPct: string | null;
+  sampleHours: number;
+};
 
 export type AssetSort = 'MARKET_CAP' | 'PRICE' | 'CHANGE_24H' | 'VOLUME';
 
@@ -211,7 +219,7 @@ export class MarketDataService {
     // Movers only from fresh quotes: a stale +40% is not a "top gainer".
     const fresh = crypto.filter((asset) => {
       const quote = quotes.get(asset.id);
-      return quote && !assessQuote(quote, 'CRYPTO').isStale;
+      return quote && !this.quotes.assess(quote, 'CRYPTO').isStale;
     });
     const by = (field: 'change24hPct' | 'volume24h') => (a: Asset, b: Asset) =>
       new Prisma.Decimal(quotes.get(b.id)?.[field] ?? 0).comparedTo(
@@ -234,8 +242,61 @@ export class MarketDataService {
       topGainers: byChange.slice(0, 5),
       topLosers: byChange.slice(-5).reverse(),
       mostTraded: [...fresh].sort(by('volume24h')).slice(0, 5),
+      mostVolatile: await this.mostVolatile(crypto),
       indexProxies,
     };
+  }
+
+  // Realized volatility from stored hourly candles: the standard deviation of
+  // hourly log returns, annualized by sqrt(24 * 365) because crypto trades
+  // around the clock. One SQL statement for any number of assets (it backs a
+  // DataLoader). Too few bars -> null, never a number from thin data.
+  async volatility(
+    assetIds: readonly string[],
+  ): Promise<Map<string, Volatility>> {
+    const rows = await this.prisma.$queryRaw<
+      {
+        asset_id: string;
+        vol24: Prisma.Decimal | null;
+        vol7: Prisma.Decimal | null;
+        range24: Prisma.Decimal | null;
+        n7: bigint;
+      }[]
+    >`
+      WITH bars AS (
+        SELECT asset_id, open_time, high, low,
+               ln(close / lag(close) OVER (PARTITION BY asset_id ORDER BY open_time)) AS r
+        FROM candles
+        WHERE asset_id = ANY(${[...assetIds]}::uuid[]) AND timeframe = 'H1'
+          AND open_time >= now() - interval '7 days' AND close > 0
+      ), stats AS (
+        SELECT asset_id,
+               stddev_samp(r) FILTER (WHERE open_time >= now() - interval '24 hours') AS sd24,
+               count(r) FILTER (WHERE open_time >= now() - interval '24 hours') AS n24,
+               stddev_samp(r) AS sd7,
+               count(r) AS n7,
+               max(high) FILTER (WHERE open_time >= now() - interval '24 hours') AS hi24,
+               min(low) FILTER (WHERE open_time >= now() - interval '24 hours') AS lo24
+        FROM bars GROUP BY asset_id
+      )
+      SELECT asset_id,
+             CASE WHEN n24 >= 12 THEN round(sd24 * sqrt(8760::numeric) * 100, 2) END AS vol24,
+             CASE WHEN n7 >= 48 THEN round(sd7 * sqrt(8760::numeric) * 100, 2) END AS vol7,
+             CASE WHEN lo24 > 0 THEN round((hi24 - lo24) / lo24 * 100, 2) END AS range24,
+             n7
+      FROM stats`;
+    return new Map(
+      rows.map((row) => [
+        row.asset_id,
+        {
+          assetId: row.asset_id,
+          annualized24hPct: row.vol24?.toFixed(2) ?? null,
+          annualized7dPct: row.vol7?.toFixed(2) ?? null,
+          range24hPct: row.range24?.toFixed(2) ?? null,
+          sampleHours: Number(row.n7),
+        },
+      ]),
+    );
   }
 
   providerStatus() {
@@ -274,6 +335,15 @@ export class MarketDataService {
       ON CONFLICT (asset_id, timeframe, open_time) DO UPDATE SET
         open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, close = EXCLUDED.close,
         volume = EXCLUDED.volume, provider = EXCLUDED.provider, fetched_at = EXCLUDED.fetched_at`;
+  }
+
+  private async mostVolatile(crypto: Asset[]): Promise<Asset[]> {
+    const stats = await this.volatility(crypto.map((asset) => asset.id));
+    const key = (asset: Asset) => stats.get(asset.id)?.annualized7dPct;
+    return crypto
+      .filter((asset) => key(asset) != null)
+      .sort((a, b) => new Prisma.Decimal(key(b)!).comparedTo(key(a)!))
+      .slice(0, 5);
   }
 
   private async readCandles(

@@ -12,6 +12,14 @@ const envSchema = z
     DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
     REDIS_URL: z.url({ protocol: /^rediss?$/ }),
     GRAPHQL_MAX_DEPTH: z.coerce.number().int().min(1).max(20).default(8),
+    // Optional bearer token for GET /metrics. Without it, restrict /metrics at the ingress.
+    METRICS_TOKEN: z.string().min(16).optional(),
+    GRAPHQL_MAX_COST: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(100_000)
+      .default(5_000),
     // HS256 key: at least 256 bits. Generate with `openssl rand -base64 48`.
     JWT_ACCESS_SECRET: z.string().min(32),
 
@@ -38,6 +46,40 @@ const envSchema = z
     ORDER_MATCHING_ENABLED: z.stringbool().default(true),
     OUTBOX_PUBLISHER_ENABLED: z.stringbool().default(true),
     RECONCILIATION_ENABLED: z.stringbool().default(true),
+    // Freshness windows and refresh intervals (seconds). Tune to the
+    // provider plan: faster than the provider updates is wasted quota.
+    QUOTE_LIVE_MAX_AGE_SECONDS: z.coerce.number().int().min(5).default(30),
+    CRYPTO_QUOTE_STALE_AFTER_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(60)
+      .default(600),
+    STOCK_QUOTE_STALE_AFTER_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(300)
+      .default(7200),
+    TRADE_MAX_PRICE_AGE_SECONDS: z.coerce.number().int().min(5).default(60),
+    CRYPTO_LISTINGS_INTERVAL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(60)
+      .default(300),
+    STOCK_QUOTES_INTERVAL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(300)
+      .default(1800),
+    CRYPTO_CANDLES_INTERVAL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(300)
+      .default(3600),
+    STOCK_CANDLES_INTERVAL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(900)
+      .default(10800),
     CRYPTO_LISTING_SIZE: z.coerce.number().int().min(5).max(100).default(25),
   })
   .refine(

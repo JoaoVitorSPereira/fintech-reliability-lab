@@ -2,7 +2,9 @@ import type { INestApplication } from '@nestjs/common';
 import type { App } from 'supertest/types';
 import { Prisma } from '../src/generated/prisma/client';
 import { PrismaService } from '../src/infrastructure/database/prisma.service';
+import { Metrics } from '../src/infrastructure/metrics/metrics';
 import { MarketDataLoaders } from '../src/modules/market-data/market-data.loaders';
+import { MarketDataService } from '../src/modules/market-data/market-data.service';
 import { QuoteStore } from '../src/modules/market-data/quote-store';
 import { createTestApp, gql, registerUser, type TestUser } from './graphql';
 
@@ -81,18 +83,16 @@ describe('performance experiments', () => {
       ),
     );
     const now = new Date().toISOString();
-    await app
-      .get(QuoteStore)
-      .write(
-        assets.map((a) => ({
-          assetId: a.id,
-          price: '1',
-          currency: 'USD',
-          provider: 'bench',
-          sourceTimestamp: now,
-          fetchedAt: now,
-        })),
-      );
+    await app.get(QuoteStore).write(
+      assets.map((a) => ({
+        assetId: a.id,
+        price: '1',
+        currency: 'USD',
+        provider: 'bench',
+        sourceTimestamp: now,
+        fetchedAt: now,
+      })),
+    );
     const hour = 3_600_000;
     const base = Math.floor(Date.now() / hour) * hour;
     await prisma.candle.createMany({
@@ -124,7 +124,12 @@ describe('performance experiments', () => {
     record('Asset list (25 rows)', 'naive: 2 round trips per row (50)', naive);
 
     const batched = await measure(30, async () => {
-      const loaders = new MarketDataLoaders(store, prisma);
+      const loaders = new MarketDataLoaders(
+        store,
+        prisma,
+        app.get(Metrics),
+        app.get(MarketDataService),
+      );
       await Promise.all(
         ids.flatMap((id) => [
           loaders.quotes.load(id),

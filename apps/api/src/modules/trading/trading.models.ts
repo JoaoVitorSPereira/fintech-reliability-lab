@@ -1,3 +1,4 @@
+import { DecimalScalar } from '../../graphql/scalars/decimal.scalar';
 import {
   Field,
   ID,
@@ -36,10 +37,10 @@ export class TradeModel {
   @Field(() => ID)
   id: string;
 
-  @Field()
+  @Field(() => DecimalScalar)
   quantity: string;
 
-  @Field({
+  @Field(() => DecimalScalar, {
     description:
       'Reference price from market data, not an exchange fill price.',
   })
@@ -81,10 +82,10 @@ export class SimulatedOrderModel {
   @Field(() => OrderStatus)
   status: OrderStatus;
 
-  @Field()
+  @Field(() => DecimalScalar)
   quantity: string;
 
-  @Field(() => String, { nullable: true })
+  @Field(() => DecimalScalar, { nullable: true })
   limitPrice: string | null;
 
   @Field(() => Money, { description: 'Cash held for a pending limit buy.' })
@@ -140,13 +141,13 @@ export class PositionModel {
   @Field(() => AssetModel)
   asset: AssetModel;
 
-  @Field()
+  @Field(() => DecimalScalar)
   quantity: string;
 
-  @Field({ description: 'Held for open limit sells.' })
+  @Field(() => DecimalScalar, { description: 'Held for open limit sells.' })
   reservedQuantity: string;
 
-  @Field(() => String, {
+  @Field(() => DecimalScalar, {
     nullable: true,
     description: 'Average acquisition price (average cost method).',
   })
@@ -164,13 +165,13 @@ export class PositionModel {
   @Field(() => Money, { nullable: true })
   unrealizedPnl: Money | null;
 
-  @Field(() => String, { nullable: true })
+  @Field(() => DecimalScalar, { nullable: true })
   unrealizedPnlPct: string | null;
 
   @Field(() => Money)
   realizedPnl: Money;
 
-  @Field(() => String, {
+  @Field(() => DecimalScalar, {
     nullable: true,
     description: 'Share of total portfolio value, percent.',
   })
@@ -234,11 +235,22 @@ export class PortfolioModel {
   })
   dayChange: Money | null;
 
-  @Field(() => String, {
+  @Field(() => DecimalScalar, {
     nullable: true,
     description: 'Cash share of total value, percent.',
   })
   cashAllocationPct: string | null;
+
+  @Field(() => Money, {
+    description: 'Simulated deposits into this portfolio.',
+  })
+  netDeposits: Money;
+
+  @Field(() => DecimalScalar, {
+    nullable: true,
+    description: 'Return on net deposits, percent.',
+  })
+  totalReturnPct: string | null;
 
   @Field({
     description: 'True if any holding is valued with a stale or missing price.',
@@ -271,10 +283,12 @@ export class SimulatedOrderInput {
   @Field(() => OrderType)
   type: OrderType;
 
-  @Field({ description: 'Units, decimal string with up to 8 decimals.' })
+  @Field(() => DecimalScalar, {
+    description: 'Units, decimal string with up to 8 decimals.',
+  })
   quantity: string;
 
-  @Field(() => String, {
+  @Field(() => DecimalScalar, {
     nullable: true,
     description: 'Required for LIMIT orders.',
   })

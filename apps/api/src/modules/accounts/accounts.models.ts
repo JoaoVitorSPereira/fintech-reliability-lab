@@ -1,3 +1,4 @@
+import { DecimalScalar } from '../../graphql/scalars/decimal.scalar';
 import { Field, ID, ObjectType, registerEnumType } from '@nestjs/graphql';
 import {
   AccountPurpose,
@@ -13,7 +14,7 @@ registerEnumType(AccountPurpose, { name: 'AccountPurpose' });
     'An exact amount. `amount` is a decimal string ("1050.25"); never parse it into a float.',
 })
 export class Money {
-  @Field()
+  @Field(() => DecimalScalar)
   amount: string;
 
   @Field({ description: 'ISO 4217 code.' })

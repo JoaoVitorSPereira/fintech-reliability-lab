@@ -10,7 +10,7 @@ const config: CodegenConfig = {
     './src/graphql/generated/': {
       preset: 'client',
       presetConfig: { fragmentMasking: false },
-      config: { scalars: { DateTime: 'string' }, useTypeImports: true, enumsAsTypes: true, nonOptionalTypename: true },
+      config: { scalars: { DateTime: 'string', Decimal: 'string' }, useTypeImports: true, enumsAsTypes: true, nonOptionalTypename: true },
     },
   },
 };

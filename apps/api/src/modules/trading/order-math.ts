@@ -106,6 +106,7 @@ export function executablePrice(
   category: AssetCategory,
   quote: StoredQuote | null,
   now: number = Date.now(),
+  maxCryptoPriceAgeMs: number = MAX_CRYPTO_PRICE_AGE_MS,
 ): ExecutablePrice {
   if (!quote)
     return {
@@ -115,7 +116,7 @@ export function executablePrice(
   const timestamp = new Date(quote.sourceTimestamp);
   if (category === 'CRYPTO') {
     const age = now - timestamp.getTime();
-    if (age > MAX_CRYPTO_PRICE_AGE_MS) {
+    if (age > maxCryptoPriceAgeMs) {
       return {
         ok: false,
         reason: `Price is stale (last update ${Math.round(age / 1000)}s ago).`,

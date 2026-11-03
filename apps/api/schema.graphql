@@ -47,11 +47,12 @@ type Asset {
   """
   Hourly closes for the last 24h, oldest first. Empty if not yet ingested.
   """
-  sparkline: [String!]!
+  sparkline: [Decimal!]!
 
   """Timeframes a provider actually offers for this asset."""
   supportedTimeframes: [ChartTimeframe!]!
   symbol: String!
+  volatility: Volatility
 }
 
 enum AssetCategory {
@@ -85,17 +86,17 @@ type AuthPayload {
 }
 
 type Candle {
-  close: String!
-  high: String!
+  close: Decimal!
+  high: Decimal!
 
   """False for the current, still-forming interval."""
   isClosed: Boolean!
-  low: String!
-  open: String!
+  low: Decimal!
+  open: Decimal!
 
   """Start of the interval, UTC."""
   openTime: DateTime!
-  volume: String!
+  volume: Decimal!
 }
 
 type CandleSeries {
@@ -127,7 +128,7 @@ enum ChartTimeframe {
 
 input CreateTransferInput {
   """Decimal string, e.g. "150.25"."""
-  amount: String!
+  amount: Decimal!
   description: String
   fromAccountId: ID!
 
@@ -152,6 +153,11 @@ enum DataQuality {
 A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
 """
 scalar DateTime
+
+"""
+An exact decimal number serialized as a string, e.g. "1050.25". Never parse into a float.
+"""
+scalar Decimal
 
 enum DependencyStatus {
   DOWN
@@ -200,16 +206,19 @@ input LoginInput {
 
 type MarketOverview {
   asOf: DateTime
-  btcDominancePct: String
+  btcDominancePct: Decimal
 
   """
   SPY and QQQ ETFs as stand-ins for the S&P 500 and Nasdaq-100. Not the indices themselves.
   """
   indexProxies: [Asset!]!
-  marketCapChange24hPct: String
+  marketCapChange24hPct: Decimal
 
   """By 24h volume."""
   mostTraded: [Asset!]!
+
+  """Highest 7-day realized volatility among crypto assets."""
+  mostVolatile: [Asset!]!
   providers: [ProviderStatus!]!
 
   """From fresh quotes only."""
@@ -217,7 +226,7 @@ type MarketOverview {
   topLosers: [Asset!]!
 
   """Total crypto market cap (CoinGecko), USD."""
-  totalMarketCapUsd: String
+  totalMarketCapUsd: Decimal
 }
 
 """Decimal strings throughout. Check isStale before showing as current."""
@@ -225,7 +234,7 @@ type MarketPrice {
   assetId: ID!
 
   """24h change in percent."""
-  change24h: String
+  change24h: Decimal
 
   """USD, or USDT for prices streamed from Binance."""
   currency: String!
@@ -234,16 +243,16 @@ type MarketPrice {
   """When this server received it."""
   fetchedAt: DateTime!
   isStale: Boolean!
-  marketCap: String
+  marketCap: Decimal
   marketStatus: MarketStatus!
-  price: String!
+  price: Decimal!
   provider: String!
 
   """When the provider says this price was true."""
   sourceTimestamp: DateTime!
 
   """24h volume in the quote currency."""
-  volume24h: String
+  volume24h: Decimal
 }
 
 """
@@ -251,10 +260,10 @@ Streamed from Binance. Throttled per asset; not every tick is delivered.
 """
 type MarketPriceUpdate {
   assetId: ID!
-  change24h: String
+  change24h: Decimal
   currency: String!
   dataQuality: DataQuality!
-  price: String!
+  price: Decimal!
   sourceTimestamp: DateTime!
 }
 
@@ -268,7 +277,7 @@ enum MarketStatus {
 An exact amount. `amount` is a decimal string ("1050.25"); never parse it into a float.
 """
 type Money {
-  amount: String!
+  amount: Decimal!
 
   """ISO 4217 code."""
   currency: String!
@@ -349,7 +358,7 @@ type Portfolio {
   cashAccountId: ID!
 
   """Cash share of total value, percent."""
-  cashAllocationPct: String
+  cashAllocationPct: Decimal
 
   """
   Change of held positions over 24h, from each quote's 24h change. Null if any is unknown.
@@ -358,6 +367,9 @@ type Portfolio {
   id: ID!
   isSimulated: Boolean!
   marketValue: Money!
+
+  """Simulated deposits into this portfolio."""
+  netDeposits: Money!
   performance(range: PerformanceRange! = WEEK): [ValuationPoint!]!
   positions: [Position!]!
   realizedPnl: Money!
@@ -365,6 +377,9 @@ type Portfolio {
   """Held for open limit buys."""
   reservedCash: Money!
   totalPnl: Money!
+
+  """Return on net deposits, percent."""
+  totalReturnPct: Decimal
 
   """Cash + reserved cash + market value."""
   totalValue: Money!
@@ -376,23 +391,23 @@ type Portfolio {
 
 type Position {
   """Share of total portfolio value, percent."""
-  allocationPct: String
+  allocationPct: Decimal
   asset: Asset!
 
   """Average acquisition price (average cost method)."""
-  averagePrice: String
+  averagePrice: Decimal
   costBasis: Money!
 
   """Null when no price is available."""
   marketValue: Money
   priceIsStale: Boolean!
-  quantity: String!
+  quantity: Decimal!
   realizedPnl: Money!
 
   """Held for open limit sells."""
-  reservedQuantity: String!
+  reservedQuantity: Decimal!
   unrealizedPnl: Money
-  unrealizedPnlPct: String
+  unrealizedPnlPct: Decimal
 }
 
 type ProviderStatus {
@@ -460,7 +475,7 @@ input SimulateDepositInput {
   accountId: ID!
 
   """Decimal string, at most 50000.00."""
-  amount: String!
+  amount: Decimal!
   idempotencyKey: String!
 }
 
@@ -474,9 +489,9 @@ type SimulatedOrder {
 
   """Always true. This platform does not route orders to any exchange."""
   isSimulated: Boolean!
-  limitPrice: String
+  limitPrice: Decimal
   portfolioId: ID!
-  quantity: String!
+  quantity: Decimal!
   rejectReason: String
 
   """Cash held for a pending limit buy."""
@@ -497,10 +512,10 @@ input SimulatedOrderInput {
   idempotencyKey: String!
 
   """Required for LIMIT orders."""
-  limitPrice: String
+  limitPrice: Decimal
 
   """Units, decimal string with up to 8 decimals."""
-  quantity: String!
+  quantity: Decimal!
   side: OrderSide!
   type: OrderType!
 }
@@ -537,10 +552,10 @@ type Trade {
   notional: Money!
 
   """Reference price from market data, not an exchange fill price."""
-  price: String!
+  price: Decimal!
   priceProvider: String!
   priceTimestamp: DateTime!
-  quantity: String!
+  quantity: Decimal!
 
   """Sells only."""
   realizedPnl: Money
@@ -607,6 +622,23 @@ type ValuationPoint {
   at: DateTime!
   isStale: Boolean!
   totalValue: Money!
+}
+
+"""
+Realized volatility from hourly closes: standard deviation of hourly log returns, annualized by sqrt(8760) (24/7 markets). Descriptive statistics, not a forecast. Null when there is too little data.
+"""
+type Volatility {
+  """Last 7 days, annualized, percent. Needs at least 48 hourly bars."""
+  annualized7dPct: Decimal
+
+  """Last 24h, annualized, percent. Needs at least 12 hourly bars."""
+  annualized24hPct: Decimal
+
+  """(24h high - 24h low) / 24h low, percent."""
+  range24hPct: Decimal
+
+  """Hourly returns the 7-day figure is based on."""
+  sampleHours: Int!
 }
 
 type WatchlistItem {

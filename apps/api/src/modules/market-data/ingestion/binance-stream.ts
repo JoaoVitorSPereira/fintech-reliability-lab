@@ -23,6 +23,13 @@ export class BinanceStream {
     private readonly onTicker: (ticker: MiniTicker) => void,
   ) {}
 
+  /** Seconds since the last frame; Infinity before the first one. */
+  get secondsSinceLastMessage(): number {
+    return this.lastMessageAt
+      ? (Date.now() - this.lastMessageAt) / 1000
+      : Number.POSITIVE_INFINITY;
+  }
+
   get connected(): boolean {
     return (
       this.socket?.readyState === WebSocket.OPEN &&

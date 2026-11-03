@@ -1,9 +1,11 @@
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { SwaggerModule } from '@nestjs/swagger';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import type { Env } from './config/env';
+import { openApiConfig } from './openapi';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -15,6 +17,12 @@ async function bootstrap() {
   app.enableShutdownHooks();
 
   const config = app.get<ConfigService<Env, true>>(ConfigService);
+  // OpenAPI for the REST endpoints (health). Like GraphiQL, dev-only.
+  if (config.get('NODE_ENV', { infer: true }) !== 'production') {
+    SwaggerModule.setup('docs', app, () =>
+      SwaggerModule.createDocument(app, openApiConfig()),
+    );
+  }
   await app.listen(config.get('PORT', { infer: true }));
 }
 

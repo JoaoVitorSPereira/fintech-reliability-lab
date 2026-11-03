@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { Redis } from 'ioredis';
+import type { Metrics } from '../../infrastructure/metrics/metrics';
 import { ProviderError, type ProviderName } from './market-data.types';
 
 export type ProviderHttpOptions = {
@@ -11,6 +12,7 @@ export type ProviderHttpOptions = {
   headers?: Record<string, string>;
   /** Query parameters added to every request (e.g. an API key). Never logged. */
   defaultQuery?: Record<string, string>;
+  metrics?: Metrics;
 };
 
 export type ProviderHealth = {
@@ -82,6 +84,7 @@ export class ProviderHttp {
   private async admit(): Promise<void> {
     const now = Date.now();
     if (now < this.circuitOpenUntil) {
+      this.refused('circuit_open');
       throw new ProviderError(
         this.name,
         'CIRCUIT_OPEN',
@@ -92,6 +95,7 @@ export class ProviderHttp {
       .pttl(`md:provider:${this.name}:cooldown`)
       .catch(() => -2);
     if (cooldown > 0) {
+      this.refused('cooldown');
       this.health.rateLimitedUntil = new Date(now + cooldown);
       throw new ProviderError(
         this.name,
@@ -111,6 +115,7 @@ export class ProviderHttp {
       // Redis down: fail open. The breaker and 429 handling still protect us.
       .catch(() => 0);
     if (used > this.options.requestsPerMinute) {
+      this.refused('budget');
       throw new ProviderError(
         this.name,
         'BUDGET_EXHAUSTED',
@@ -140,6 +145,7 @@ export class ProviderHttp {
       });
     } catch (error) {
       const reason = error instanceof Error ? error.name : 'network error';
+      this.observe('network_error', started);
       throw this.fail(
         'UNAVAILABLE',
         `${reason} on ${path} (attempt ${attempt})`,
@@ -147,6 +153,16 @@ export class ProviderHttp {
     }
     const latencyMs = Math.round(performance.now() - started);
     this.health.lastLatencyMs = latencyMs;
+    this.observe(
+      response.status === 429 || response.status === 418
+        ? 'rate_limited'
+        : response.status >= 500
+          ? 'server_error'
+          : response.ok
+            ? 'ok'
+            : 'client_error',
+      started,
+    );
 
     if (response.status === 429 || response.status === 418) {
       // 418 = Binance's "you ignored our 429s" IP ban.
@@ -157,6 +173,7 @@ export class ProviderHttp {
         .set(`md:provider:${this.name}:cooldown`, '1', 'PX', retryAfterMs)
         .catch(() => undefined);
       this.health.rateLimitedUntil = new Date(Date.now() + retryAfterMs);
+      this.refused('http_429');
       this.logger.warn(
         `rate limited (${response.status}), cooling down ${retryAfterMs}ms`,
       );
@@ -183,6 +200,22 @@ export class ProviderHttp {
     this.health.status = 'UP';
     this.logger.debug(`${path} ${response.status} in ${latencyMs}ms`);
     return body;
+  }
+
+  private observe(outcome: string, started: number): void {
+    this.options.metrics?.providerDuration.observe(
+      { provider: this.name, outcome },
+      (performance.now() - started) / 1000,
+    );
+  }
+
+  private refused(
+    reason: 'circuit_open' | 'cooldown' | 'budget' | 'http_429',
+  ): void {
+    this.options.metrics?.providerRateLimited.inc({
+      provider: this.name,
+      reason,
+    });
   }
 
   /** Normalizers call this when a 200 response has the wrong shape. */

@@ -176,6 +176,11 @@ describe('Market data (e2e, against a fake provider)', () => {
       body: fixture('coingecko-global.json'),
     }));
     const coingecko = app.get(CoinGeckoAdapter);
+    // The budget is a fixed one-minute window: a burst that straddles the
+    // minute boundary gets two budgets. Don't start within 2s of it.
+    const intoMinute = Date.now() % 60_000;
+    if (intoMinute > 58_000)
+      await new Promise((resolve) => setTimeout(resolve, 60_500 - intoMinute));
     const results = await Promise.allSettled(
       Array.from({ length: 12 }, () => coingecko.global()),
     );
@@ -302,5 +307,79 @@ describe('Market data (e2e, against a fake provider)', () => {
     expect(raw).toHaveBeenCalledTimes(1);
     readMany.mockRestore();
     raw.mockRestore();
+  });
+
+  it('computes realized volatility from stored hourly candles, and refuses to from thin data', async () => {
+    const prisma = app.get(PrismaService);
+    const make = (tag: string) =>
+      prisma.asset.create({
+        data: {
+          category: 'CRYPTO',
+          symbol: `V${tag}${run}`.toUpperCase(),
+          name: `Vol ${tag}`,
+          quoteCurrency: 'USD',
+        },
+      });
+    const [swinging, flat, thin] = [
+      await make('s'),
+      await make('f'),
+      await make('t'),
+    ];
+    const hour = 3_600_000;
+    const base = Math.floor(Date.now() / hour) * hour;
+    const bars = (
+      assetId: string,
+      count: number,
+      close: (i: number) => number,
+    ) =>
+      Array.from({ length: count }, (_, i) => {
+        const c = close(i);
+        return {
+          assetId,
+          timeframe: 'H1' as const,
+          openTime: new Date(base - (count - 1 - i) * hour),
+          open: c,
+          high: c,
+          low: c,
+          close: c,
+          volume: 1,
+          provider: 'test',
+          fetchedAt: new Date(),
+        };
+      });
+    await prisma.candle.createMany({
+      data: [
+        ...bars(swinging.id, 72, (i) => (i % 2 === 0 ? 100 : 110)),
+        ...bars(flat.id, 72, () => 100),
+        ...bars(thin.id, 6, (i) => 100 + i),
+      ],
+    });
+
+    type Vol = {
+      asset: {
+        volatility: {
+          annualized24hPct: string | null;
+          annualized7dPct: string | null;
+          range24hPct: string | null;
+          sampleHours: number;
+        } | null;
+      };
+    };
+    const query = `query($id: ID!) { asset(id: $id) { volatility { annualized24hPct annualized7dPct range24hPct sampleHours } } }`;
+    const get = async (id: string) =>
+      (await gql<Vol>(app, query, { id }, token)).data!.asset.volatility;
+
+    const s = await get(swinging.id);
+    expect(s).toMatchObject({ range24hPct: '10.00', sampleHours: 71 });
+    expect(Number(s!.annualized7dPct)).toBeGreaterThan(0);
+    expect(await get(flat.id)).toMatchObject({
+      annualized24hPct: '0.00',
+      annualized7dPct: '0.00',
+      range24hPct: '0.00',
+    });
+    expect(await get(thin.id)).toMatchObject({
+      annualized24hPct: null,
+      annualized7dPct: null,
+    });
   });
 });

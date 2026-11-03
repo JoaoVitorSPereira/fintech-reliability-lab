@@ -9,6 +9,8 @@ import { graphqlConfig } from './graphql/graphql.config';
 import { GraphqlLoggingPlugin } from './graphql/logging.plugin';
 import { HealthModule } from './health/health.module';
 import { DatabaseModule } from './infrastructure/database/prisma.service';
+import { Metrics } from './infrastructure/metrics/metrics';
+import { MetricsModule } from './infrastructure/metrics/metrics.module';
 import { loggerConfig } from './infrastructure/logging/logger.config';
 import { RedisModule } from './infrastructure/redis/redis.module';
 import { AccountsModule } from './modules/accounts/accounts.module';
@@ -32,9 +34,10 @@ import { AppErrorFilter } from './shared/errors/app-error.filter';
     GraphQLModule.forRootAsync<ApolloDriverConfig>({
       driver: ApolloDriver,
       imports: [IdentityModule],
-      inject: [ConfigService, AuthService],
+      inject: [ConfigService, AuthService, Metrics],
       useFactory: graphqlConfig,
     }),
+    MetricsModule,
     DatabaseModule,
     RedisModule,
     EventsModule,

@@ -10,6 +10,7 @@ import {
   isUniqueViolation,
   withTransactionRetry,
 } from '../../infrastructure/database/transaction-retry';
+import { Metrics } from '../../infrastructure/metrics/metrics';
 import { AppError } from '../../shared/errors/app-error';
 import {
   type Currency,
@@ -62,6 +63,7 @@ export class TransfersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
+    private readonly metrics: Metrics,
     @InjectPinoLogger(TransfersService.name)
     private readonly logger: PinoLogger,
   ) {}
@@ -169,6 +171,10 @@ export class TransfersService {
         if (winner) return this.replay(winner, command);
       }
       if (error instanceof AppError) {
+        this.metrics.financialFailures.inc({
+          operation: command.kind === 'TRANSFER' ? 'transfer' : 'deposit',
+          code: error.code,
+        });
         this.logger.info(
           {
             code: error.code,

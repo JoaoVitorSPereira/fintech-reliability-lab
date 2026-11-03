@@ -1,3 +1,4 @@
+import { DecimalScalar } from '../../graphql/scalars/decimal.scalar';
 import {
   Field,
   Float,
@@ -47,25 +48,25 @@ export class MarketPriceModel {
   @Field(() => ID)
   assetId: string;
 
-  @Field()
+  @Field(() => DecimalScalar)
   price: string;
 
   @Field({ description: 'USD, or USDT for prices streamed from Binance.' })
   currency: string;
 
-  @Field(() => String, {
+  @Field(() => DecimalScalar, {
     nullable: true,
     description: '24h change in percent.',
   })
   change24h: string | null;
 
-  @Field(() => String, {
+  @Field(() => DecimalScalar, {
     nullable: true,
     description: '24h volume in the quote currency.',
   })
   volume24h: string | null;
 
-  @Field(() => String, { nullable: true })
+  @Field(() => DecimalScalar, { nullable: true })
   marketCap: string | null;
 
   @Field()
@@ -85,6 +86,37 @@ export class MarketPriceModel {
 
   @Field(() => MarketStatus)
   marketStatus: MarketStatus;
+}
+
+@ObjectType('Volatility', {
+  description:
+    'Realized volatility from hourly closes: standard deviation of hourly log returns, annualized by sqrt(8760) (24/7 markets). Descriptive statistics, not a forecast. Null when there is too little data.',
+})
+export class VolatilityModel {
+  @Field(() => DecimalScalar, {
+    nullable: true,
+    description:
+      'Last 24h, annualized, percent. Needs at least 12 hourly bars.',
+  })
+  annualized24hPct: string | null;
+
+  @Field(() => DecimalScalar, {
+    nullable: true,
+    description:
+      'Last 7 days, annualized, percent. Needs at least 48 hourly bars.',
+  })
+  annualized7dPct: string | null;
+
+  @Field(() => DecimalScalar, {
+    nullable: true,
+    description: '(24h high - 24h low) / 24h low, percent.',
+  })
+  range24hPct: string | null;
+
+  @Field(() => Int, {
+    description: 'Hourly returns the 7-day figure is based on.',
+  })
+  sampleHours: number;
 }
 
 @ObjectType('Asset')
@@ -130,19 +162,19 @@ export class CandleModel {
   @Field({ description: 'Start of the interval, UTC.' })
   openTime: Date;
 
-  @Field()
+  @Field(() => DecimalScalar)
   open: string;
 
-  @Field()
+  @Field(() => DecimalScalar)
   high: string;
 
-  @Field()
+  @Field(() => DecimalScalar)
   low: string;
 
-  @Field()
+  @Field(() => DecimalScalar)
   close: string;
 
-  @Field()
+  @Field(() => DecimalScalar)
   volume: string;
 
   @Field({ description: 'False for the current, still-forming interval.' })
@@ -211,16 +243,16 @@ export class ProviderStatusModel {
 
 @ObjectType('MarketOverview')
 export class MarketOverviewModel {
-  @Field(() => String, {
+  @Field(() => DecimalScalar, {
     nullable: true,
     description: 'Total crypto market cap (CoinGecko), USD.',
   })
   totalMarketCapUsd: string | null;
 
-  @Field(() => String, { nullable: true })
+  @Field(() => DecimalScalar, { nullable: true })
   marketCapChange24hPct: string | null;
 
-  @Field(() => String, { nullable: true })
+  @Field(() => DecimalScalar, { nullable: true })
   btcDominancePct: string | null;
 
   @Field(() => Date, { nullable: true })
@@ -234,6 +266,11 @@ export class MarketOverviewModel {
 
   @Field(() => [AssetModel], { description: 'By 24h volume.' })
   mostTraded: AssetModel[];
+
+  @Field(() => [AssetModel], {
+    description: 'Highest 7-day realized volatility among crypto assets.',
+  })
+  mostVolatile: AssetModel[];
 
   @Field(() => [AssetModel], {
     description:

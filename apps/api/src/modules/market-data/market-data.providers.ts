@@ -2,6 +2,7 @@ import type { Provider } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Redis } from 'ioredis';
 import type { Env } from '../../config/env';
+import { Metrics } from '../../infrastructure/metrics/metrics';
 import { REDIS } from '../../infrastructure/redis/redis.module';
 import { ProviderHttp } from './provider-http';
 import { BinanceAdapter } from './providers/binance';
@@ -20,13 +21,14 @@ type Config = ConfigService<Env, true>;
 export const marketDataProviders: Provider[] = [
   {
     provide: CoinGeckoAdapter,
-    inject: [ConfigService, REDIS],
-    useFactory: (config: Config, redis: Redis) => {
+    inject: [ConfigService, REDIS, Metrics],
+    useFactory: (config: Config, redis: Redis, metrics: Metrics) => {
       const key = config.get('COINGECKO_DEMO_API_KEY', { infer: true });
       return new CoinGeckoAdapter(
         new ProviderHttp(
           {
             name: 'coingecko',
+            metrics,
             baseUrl: config.get('COINGECKO_BASE_URL', { infer: true }),
             requestsPerMinute: key ? 25 : 8,
             headers: key ? { 'x-cg-demo-api-key': key } : {},
@@ -38,12 +40,13 @@ export const marketDataProviders: Provider[] = [
   },
   {
     provide: BinanceAdapter,
-    inject: [ConfigService, REDIS],
-    useFactory: (config: Config, redis: Redis) =>
+    inject: [ConfigService, REDIS, Metrics],
+    useFactory: (config: Config, redis: Redis, metrics: Metrics) =>
       new BinanceAdapter(
         new ProviderHttp(
           {
             name: 'binance',
+            metrics,
             baseUrl: config.get('BINANCE_REST_URL', { infer: true }),
             // Binance allows 6000 request-weight/min per IP; klines cost 2.
             requestsPerMinute: 300,
@@ -54,12 +57,13 @@ export const marketDataProviders: Provider[] = [
   },
   {
     provide: TwelveDataAdapter,
-    inject: [ConfigService, REDIS],
-    useFactory: (config: Config, redis: Redis) =>
+    inject: [ConfigService, REDIS, Metrics],
+    useFactory: (config: Config, redis: Redis, metrics: Metrics) =>
       new TwelveDataAdapter(
         new ProviderHttp(
           {
             name: 'twelve-data',
+            metrics,
             baseUrl: config.get('TWELVE_DATA_BASE_URL', { infer: true }),
             requestsPerMinute: 8, // free plan: 8 credits/min
             defaultQuery: {

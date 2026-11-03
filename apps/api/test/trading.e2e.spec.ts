@@ -17,7 +17,7 @@ const ORDER_FIELDS = `id status side type quantity limitPrice rejectReason isSim
   reservedCash { amount } trade { price quantity notional { amount } realizedPnl { amount } priceProvider }`;
 const PLACE = `mutation P($input: SimulatedOrderInput!) { createSimulatedOrder(input: $input) { replayed order { ${ORDER_FIELDS} } } }`;
 const CANCEL = `mutation C($id: ID!) { cancelSimulatedOrder(orderId: $id) { replayed order { ${ORDER_FIELDS} } } }`;
-const PORTFOLIO = `{ portfolio { id cashAccountId cash { amount } reservedCash { amount } totalValue { amount }
+const PORTFOLIO = `{ portfolio { id cashAccountId cash { amount } reservedCash { amount } totalValue { amount } totalReturnPct netDeposits { amount }
   unrealizedPnl { amount } realizedPnl { amount } valuationIsStale isSimulated
   positions { quantity reservedQuantity averagePrice costBasis { amount } marketValue { amount }
     unrealizedPnl { amount } realizedPnl { amount } asset { symbol } } } }`;
@@ -44,6 +44,8 @@ type PortfolioData = {
     cash: { amount: string };
     reservedCash: { amount: string };
     totalValue: { amount: string };
+    totalReturnPct: string | null;
+    netDeposits: { amount: string };
     unrealizedPnl: { amount: string };
     realizedPnl: { amount: string };
     valuationIsStale: boolean;
@@ -204,6 +206,10 @@ describe('Simulated trading (e2e)', () => {
       unrealizedPnl: { amount: '10.00' },
     });
     expect(p.totalValue.amount).toBe('10010.00');
+    expect(p).toMatchObject({
+      netDeposits: { amount: '10000.00' },
+      totalReturnPct: '0.10',
+    });
 
     const sell = await place(user, {
       assetId: asset.id,

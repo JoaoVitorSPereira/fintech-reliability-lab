@@ -3,6 +3,7 @@ import type { ExecutionResult, GraphQLError } from 'graphql';
 import type { Context } from 'graphql-ws';
 import { AppError } from '../shared/errors/app-error';
 import { formatGraphqlError } from './format-error';
+import type { Metrics } from '../infrastructure/metrics/metrics';
 import type { AuthService, Viewer } from '../modules/identity/auth.service';
 
 const RECHECK_MS = 60_000;
@@ -30,7 +31,7 @@ function authorizationFrom(ctx: WsContext): string | undefined {
 // URL, which ends up in proxy logs). Sessions can be revoked later, so the
 // session is re-checked every minute and the socket closed with 4401 when
 // it's gone; the client then refreshes its token and reconnects.
-export function subscriptionConfig(auth: AuthService) {
+export function subscriptionConfig(auth: AuthService, metrics?: Metrics) {
   return {
     'graphql-ws': {
       connectionInitWaitTimeout: 5_000,
@@ -45,6 +46,7 @@ export function subscriptionConfig(auth: AuthService) {
           });
         }, RECHECK_MS);
         openConnections++;
+        metrics?.wsConnections.inc();
         logger.log(`connection opened (${openConnections} open)`);
         return true;
       },
@@ -76,6 +78,8 @@ export function subscriptionConfig(auth: AuthService) {
         if (extra.recheck) clearInterval(extra.recheck);
         if (extra.viewer) {
           openConnections--;
+          metrics?.wsConnections.dec();
+          metrics?.wsDisconnects.inc();
           logger.log(`connection closed (${openConnections} open)`);
         }
       },

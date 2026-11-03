@@ -90,6 +90,8 @@ function toPortfolioView(valuation: PortfolioValuation): PortfolioModel {
       totalValue,
     ),
     valuationIsStale: valuation.isStale,
+    netDeposits: usd(valuation.netDeposits),
+    totalReturnPct: valuation.totalReturnPct?.toFixed(2) ?? null,
     isSimulated: true,
     positions: valuation.positions.map((position) => ({
       asset: position.asset,

@@ -3,6 +3,8 @@ import DataLoader from 'dataloader';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import type { StoredQuote } from './market-data.types';
+import { Metrics } from '../../infrastructure/metrics/metrics';
+import { MarketDataService, type Volatility } from './market-data.service';
 import { QuoteStore } from './quote-store';
 
 const SPARKLINE_HOURS = 24;
@@ -15,16 +17,37 @@ export class MarketDataLoaders {
   constructor(
     private readonly quoteStore: QuoteStore,
     private readonly prisma: PrismaService,
+    private readonly metrics: Metrics,
+    private readonly marketData: MarketDataService,
   ) {}
+
+  readonly volatility = new DataLoader<string, Volatility | null>(
+    async (assetIds) => {
+      this.metrics.dataloaderBatchSize.observe(
+        { loader: 'volatility' },
+        assetIds.length,
+      );
+      const found = await this.marketData.volatility(assetIds);
+      return assetIds.map((id) => found.get(id) ?? null);
+    },
+  );
 
   readonly quotes = new DataLoader<string, StoredQuote | null>(
     async (assetIds) => {
+      this.metrics.dataloaderBatchSize.observe(
+        { loader: 'quotes' },
+        assetIds.length,
+      );
       const found = await this.quoteStore.readMany(assetIds);
       return assetIds.map((id) => found.get(id) ?? null);
     },
   );
 
   readonly sparklines = new DataLoader<string, string[]>(async (assetIds) => {
+    this.metrics.dataloaderBatchSize.observe(
+      { loader: 'sparklines' },
+      assetIds.length,
+    );
     const rows = await this.prisma.$queryRaw<
       { asset_id: string; close: Prisma.Decimal }[]
     >`
