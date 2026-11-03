@@ -22,6 +22,7 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
   sessions     Session[]
+  accounts     Account[]
 
   @@map("users")
 }
@@ -71,4 +72,72 @@ model RefreshToken {
 
   @@index([sessionId])
   @@map("refresh_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Ledger (Milestone 3). Money is BIGINT minor units (centavos for BRL).
+// The database enforces the invariants with triggers and constraints declared
+// in the migration SQL; see docs/adr/0005-double-entry-ledger.md.
+// ---------------------------------------------------------------------------
+
+enum AccountKind {
+  /// Owned by a user. Can never go negative (CHECK constraint).
+  CUSTOMER
+  /// Owned by the platform, e.g. "money that entered from outside". May go negative.
+  SYSTEM
+
+  @@map("account_kind")
+}
+
+model Account {
+  id         String          @id @default(uuid(7)) @db.Uuid
+  userId     String?         @map("user_id") @db.Uuid
+  user       User?           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  kind       AccountKind
+  /// Stable name for system accounts, e.g. "external-funding:BRL".
+  systemCode String?         @unique @map("system_code")
+  currency   String          @db.Char(3)
+  /// Cached SUM(ledger_entries.amount). Maintained only by a trigger.
+  balance    BigInt          @default(0)
+  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  entries    LedgerEntry[]
+
+  /// Target of the composite FK that stops an entry's currency differing from its account's.
+  @@unique([id, currency])
+  @@index([userId])
+  @@map("accounts")
+}
+
+enum LedgerTransactionKind {
+  DEPOSIT
+
+  @@map("ledger_transaction_kind")
+}
+
+/// One movement of money. Its entries must sum to zero per currency (checked at COMMIT).
+model LedgerTransaction {
+  id          String                @id @default(uuid(7)) @db.Uuid
+  kind        LedgerTransactionKind
+  description String
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  entries     LedgerEntry[]
+
+  @@map("ledger_transactions")
+}
+
+/// Immutable. Positive amount = money into the account.
+model LedgerEntry {
+  id            String            @id @default(uuid(7)) @db.Uuid
+  transactionId String            @map("transaction_id") @db.Uuid
+  transaction   LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  accountId     String            @map("account_id") @db.Uuid
+  currency      String            @db.Char(3)
+  account       Account           @relation(fields: [accountId, currency], references: [id, currency], onDelete: Restrict)
+  amount        BigInt
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  /// Statement pagination: WHERE account_id = $1 AND id < $cursor ORDER BY id DESC.
+  @@index([accountId, id])
+  @@index([transactionId])
+  @@map("ledger_entries")
 }

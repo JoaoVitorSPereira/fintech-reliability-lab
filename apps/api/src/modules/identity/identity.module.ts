@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import type { Env } from '../../config/env';
+import { AccountsModule } from '../accounts/accounts.module';
 import { AccessTokens } from './access-tokens';
 import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
@@ -11,6 +12,7 @@ import { LoginThrottle } from './login-throttle';
 
 @Module({
   imports: [
+    AccountsModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<Env, true>) => ({

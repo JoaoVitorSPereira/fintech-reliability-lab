@@ -11,7 +11,9 @@ import { HealthModule } from './health/health.module';
 import { DatabaseModule } from './infrastructure/database/prisma.service';
 import { loggerConfig } from './infrastructure/logging/logger.config';
 import { RedisModule } from './infrastructure/redis/redis.module';
+import { AccountsModule } from './modules/accounts/accounts.module';
 import { IdentityModule } from './modules/identity/identity.module';
+import { LedgerModule } from './modules/ledger/ledger.module';
 import { AppErrorFilter } from './shared/errors/app-error.filter';
 
 @Module({
@@ -30,6 +32,8 @@ import { AppErrorFilter } from './shared/errors/app-error.filter';
     RedisModule,
     HealthModule,
     IdentityModule,
+    LedgerModule,
+    AccountsModule,
   ],
   providers: [
     GraphqlLoggingPlugin,

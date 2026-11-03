@@ -2,6 +2,14 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
 # ------------------------------------------------------
 
+type Account {
+  """Authoritative: read from the database on every request."""
+  balance: Money!
+  createdAt: DateTime!
+  currency: String!
+  id: ID!
+}
+
 type AuthPayload {
   """Short-lived JWT for the Authorization header."""
   accessToken: String!
@@ -41,6 +49,16 @@ input LoginInput {
   password: String!
 }
 
+"""
+An exact amount. `amount` is a decimal string ("1050.25"); never parse it into a float.
+"""
+type Money {
+  amount: String!
+
+  """ISO 4217 code."""
+  currency: String!
+}
+
 type Mutation {
   login(input: LoginInput!): AuthPayload!
 
@@ -57,12 +75,22 @@ type Mutation {
   revokeSession(id: ID!): Boolean!
 }
 
+type PageInfo {
+  endCursor: String
+  hasNextPage: Boolean!
+}
+
 type Query {
+  account(id: ID!): Account!
+  accounts: [Account!]!
   health: Health!
   me: User!
 
   """Your active sessions."""
   sessions: [Session!]!
+
+  """Statement for one of your accounts, newest first."""
+  transactions(accountId: ID!, after: String, first: Int!): TransactionConnection!
 }
 
 input RegisterInput {
@@ -84,6 +112,28 @@ type Session {
   expiresAt: DateTime!
   id: ID!
   lastRefreshedAt: DateTime
+}
+
+"""One line of an account's statement (a ledger entry)."""
+type Transaction {
+  """Positive = money in, negative = money out."""
+  amount: Money!
+  createdAt: DateTime!
+  description: String!
+  id: ID!
+  kind: TransactionKind!
+
+  """The ledger transaction this line belongs to."""
+  transactionId: ID!
+}
+
+type TransactionConnection {
+  nodes: [Transaction!]!
+  pageInfo: PageInfo!
+}
+
+enum TransactionKind {
+  DEPOSIT
 }
 
 type User {

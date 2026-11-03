@@ -4,6 +4,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { Prisma, type User } from '../../generated/prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { AppError } from '../../shared/errors/app-error';
+import { AccountsService } from '../accounts/accounts.service';
 import { AccessTokens } from './access-tokens';
 import { loginSchema, parseInput, registerSchema } from './inputs';
 import { LoginThrottle } from './login-throttle';
@@ -58,6 +59,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly accessTokens: AccessTokens,
     private readonly throttle: LoginThrottle,
+    private readonly accounts: AccountsService,
     @InjectPinoLogger(AuthService.name) private readonly logger: PinoLogger,
   ) {}
 
@@ -66,9 +68,11 @@ export class AuthService {
     const passwordHash = await hashPassword(password);
 
     try {
-      // User and first session commit together: no account without a way in.
+      // User, first session and checking account commit together: no user
+      // without a way in, and no user without somewhere to hold money.
       return await this.prisma.$transaction(async (tx) => {
         const user = await tx.user.create({ data: { email, passwordHash } });
+        await this.accounts.openCustomerAccount(tx, user.id, 'BRL');
         return this.startSession(tx, user, deviceName);
       });
     } catch (error) {
