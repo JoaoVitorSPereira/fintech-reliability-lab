@@ -37,6 +37,7 @@ const envSchema = z
       ),
     ORDER_MATCHING_ENABLED: z.stringbool().default(true),
     OUTBOX_PUBLISHER_ENABLED: z.stringbool().default(true),
+    RECONCILIATION_ENABLED: z.stringbool().default(true),
     CRYPTO_LISTING_SIZE: z.coerce.number().int().min(5).max(100).default(25),
   })
   .refine(

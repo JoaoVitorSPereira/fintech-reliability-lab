@@ -54,3 +54,7 @@ jobs:
       - run: pnpm test
       - name: Committed GraphQL schema matches the code
         run: pnpm --filter api schema:check
+      # The app's generated types come from that schema: a server change that
+      # breaks the client fails here, not on a phone.
+      - name: Mobile GraphQL types match the schema
+        run: pnpm --filter mobile codegen:check

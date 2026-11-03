@@ -41,14 +41,17 @@ describe('Outbox and subscriptions (e2e)', () => {
   });
 
   afterAll(async () => {
-    await Promise.all(clients.map((client) => Promise.resolve(client.dispose())));
+    await Promise.all(
+      clients.map((client) => Promise.resolve(client.dispose())),
+    );
     await app.close();
   });
 
   beforeEach(async () => {
     // Other suites write events without publishing them. Don't let that
     // backlog sit in front of this suite's events.
-    await prisma.$executeRaw`UPDATE outbox_events SET published_at = now() WHERE published_at IS NULL AND failed_at IS NULL`;
+    await prisma.$executeRaw`UPDATE outbox_events SET published_at = now()
+      WHERE published_at IS NULL AND failed_at IS NULL AND occurred_at < now() - interval '2 minutes'`;
   });
 
   function deposit(user: TestUser, amount = '100') {
@@ -384,22 +387,20 @@ describe('Outbox and subscriptions (e2e)', () => {
         },
       });
       const now = new Date().toISOString();
-      await app
-        .get(QuoteStore)
-        .write([
-          {
-            assetId: asset.id,
-            price: '10',
-            currency: 'USDT',
-            provider: 'binance-stream',
-            sourceTimestamp: now,
-            fetchedAt: now,
-            change24hPct: null,
-            volume24h: null,
-            marketCap: null,
-            marketOpen: null,
-          },
-        ]);
+      await app.get(QuoteStore).write([
+        {
+          assetId: asset.id,
+          price: '10',
+          currency: 'USDT',
+          provider: 'binance-stream',
+          sourceTimestamp: now,
+          fetchedAt: now,
+          change24hPct: null,
+          volume24h: null,
+          marketCap: null,
+          marketOpen: null,
+        },
+      ]);
 
       type OrderUpdate = {
         simulatedOrderUpdated: {

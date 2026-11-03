@@ -11,11 +11,15 @@ process.env['JWT_ACCESS_SECRET'] ??= 'test-only-secret-0123456789abcdefghijkl';
 // Tests never call real market-data providers. Config is read when
 // AppModule is imported, so the URLs are fixed here and point at the port
 // test/fake-provider.ts listens on (only suites that start it get answers).
-export const FAKE_PROVIDER_PORT = 45_999;
+// One port per Jest worker: a worker runs one test file at a time, so two
+// suites using the fake in parallel never collide.
+export const FAKE_PROVIDER_PORT =
+  45_900 + Number(process.env['JEST_WORKER_ID'] ?? 1);
 const fake = `http://127.0.0.1:${FAKE_PROVIDER_PORT}`;
 process.env['MARKET_INGESTION_ENABLED'] = 'false';
 process.env['ORDER_MATCHING_ENABLED'] = 'false';
 process.env['OUTBOX_PUBLISHER_ENABLED'] = 'false';
+process.env['RECONCILIATION_ENABLED'] = 'false';
 process.env['COINGECKO_BASE_URL'] = `${fake}/cg`;
 process.env['BINANCE_REST_URL'] = `${fake}/bn`;
 process.env['TWELVE_DATA_BASE_URL'] = `${fake}/td`;
