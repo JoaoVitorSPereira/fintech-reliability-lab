@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useSubscription } from '@apollo/client/react';
 import { Link } from 'expo-router';
 import { useState } from 'react';
-import { RefreshControl } from 'react-native';
+import { Pressable, RefreshControl } from 'react-native';
 import { AllocationBar, ValueChart } from '@/components/charts';
 import { Banner, BannerText, Body, Button, Caption, Card, Delta, Display, ErrorState, Loading, Row, Screen, SectionTitle, SegmentedControl } from '@/components/ui';
 import { CancelOrderDocument, CreatePortfolioDocument, OrderUpdatesDocument, OrdersDocument, PortfolioDocument } from '@/graphql/operations';
@@ -85,7 +85,8 @@ export default function Portfolio() {
         <SectionTitle>Positions</SectionTitle>
         {portfolio.positions.length === 0 ? <Caption>No positions yet. Open an asset and tap Buy.</Caption> : null}
         {portfolio.positions.map((position) => (
-          <Link key={position.asset.id} href={{ pathname: '/asset/[id]', params: { id: position.asset.id } }}>
+          <Link key={position.asset.id} href={{ pathname: '/asset/[id]', params: { id: position.asset.id } }} asChild>
+            <Pressable accessibilityRole="button" style={{ gap: 4 }}>
             <Row>
               <Body bold>{position.asset.symbol}</Body>
               <Body>{position.marketValue ? formatMoney(position.marketValue.amount, 'USD') : '—'}</Body>
@@ -94,6 +95,7 @@ export default function Portfolio() {
               <Caption>{position.quantity} @ avg {position.averagePrice ? formatPrice(position.averagePrice) : '—'}{position.priceIsStale ? ' · stale price' : ''}</Caption>
               <Delta value={position.unrealizedPnlPct} size={12}>{formatPercent(position.unrealizedPnlPct)}</Delta>
             </Row>
+            </Pressable>
           </Link>
         ))}
       </Card>

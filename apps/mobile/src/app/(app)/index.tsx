@@ -32,7 +32,7 @@ export default function Dashboard() {
           <>
             <Display>{formatMoney(portfolio.totalValue.amount, 'USD')}</Display>
             <Row>
-              <Caption>Today</Caption>
+              <Caption>Holdings, last 24h</Caption>
               {portfolio.dayChange ? <Delta value={portfolio.dayChange.amount}>{formatMoney(portfolio.dayChange.amount, 'USD', { signed: true })}</Delta> : <Caption>—</Caption>}
             </Row>
             <Row>

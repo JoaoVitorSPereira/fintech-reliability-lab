@@ -7,6 +7,9 @@ import { useTheme } from 'styled-components/native';
 // Nothing computed from these numbers flows back into money values.
 const toNumber = (value: string) => Number(value);
 
+// Sparklines are pure shape: no grid. Larger charts keep a faint grid only.
+const NO_GRID = { yAxis: [{ lineWidth: 0, tickCount: 0 }], xAxis: { lineWidth: 0, tickCount: 0 } } as const;
+
 export type CandlePoint = { openTime: string; open: string; high: string; low: string; close: string; volume: string };
 
 /** Tiny 24h line for list rows. Memoized: list rows re-render on every price tick. */
@@ -17,7 +20,7 @@ export const Sparkline = memo(function Sparkline({ values, width = 72, height = 
   const rising = data[data.length - 1]!.y >= data[0]!.y;
   return (
     <View style={{ width, height }} accessibilityLabel={rising ? '24 hour trend up' : '24 hour trend down'}>
-      <CartesianChart data={data} xKey="x" yKeys={['y']}>
+      <CartesianChart data={data} xKey="x" yKeys={['y']} yAxis={[...NO_GRID.yAxis]} xAxis={NO_GRID.xAxis}>
         {({ points }) => <Line points={points.y} color={rising ? theme.colors.positive : theme.colors.negative} strokeWidth={1.5} />}
       </CartesianChart>
     </View>
